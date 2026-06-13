@@ -1,34 +1,26 @@
-from fastapi import APIRouter
-from fastapi import Depends
-
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
-
-from database import get_db
-
+from database import get_db, SessionLocal
 from models import Server
-
 from services.server_scanner import scan_server_projects
 
-router = APIRouter(
-    prefix="/discovery",
-    tags=["Discovery"]
-)
+router = APIRouter(prefix="/discovery", tags=["Discovery"])
 
+def run_scan_job():
+    db = SessionLocal()
+    try:
+        servers = db.query(Server).all()
+        for server in servers:
+            scan_server_projects(db, server)
+    finally:
+        db.close()
 
 @router.post("/scan")
-def scan_all_servers(
-    db: Session = Depends(get_db)
-):
+def trigger_scan(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    background_tasks.add_task(run_scan_job)
+    return {"message": "Scan started in background"}
 
+@router.get("/results")
+def get_results(db: Session = Depends(get_db)):
     servers = db.query(Server).all()
-
-    for server in servers:
-        scan_server_projects(
-            db,
-            server
-        )
-
-    return {
-        "message": "Discovery completed",
-        "servers_scanned": len(servers)
-    }
+    return [{"id": s.id, "hostname": s.hostname, "ip_address": s.ip_address, "status": s.status} for s in servers]
