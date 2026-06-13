@@ -1,8 +1,14 @@
-node_modules/
+# Python
+__pycache__/
+*.pyc
 .venv/
 venv/
-__pycache__/
+*.egg-info/
 .env
-build/
-dist/
-*.pyc
+
+# Node
+frontend/node_modules/
+frontend/build/
+
+# Mac
+.DS_Store
