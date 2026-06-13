@@ -1,25 +1,60 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from database import Base, engine
-from routers import stats, projects, cleanup, discovery
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.background import BackgroundScheduler
+from database import Base, engine, get_db
+from models import Server
+from services.server_scanner import scan_server_projects
+from routers import stats, projects, servers, cleanup, discovery
 from routers.auth import router as auth_router
-from routers import servers
-
 import models
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 Base.metadata.create_all(bind=engine)
 
+scheduler = BackgroundScheduler()
+
+
+def nightly_scan_job():
+    logger.info("APScheduler: Starting nightly scan...")
+    db = next(get_db())
+    try:
+        all_servers = db.query(Server).all()
+        for server in all_servers:
+            try:
+                scan_server_projects(db, server)
+                logger.info(f"APScheduler: Scanned {server.name}")
+            except Exception as e:
+                logger.error(f"APScheduler: Failed to scan {server.name}: {e}")
+    finally:
+        db.close()
+    logger.info("APScheduler: Nightly scan complete.")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.add_job(nightly_scan_job, "cron", hour=2, minute=0, id="nightly_scan")
+    scheduler.start()
+    logger.info("APScheduler started — nightly scan scheduled at 2:00 AM")
+    yield
+    scheduler.shutdown()
+    logger.info("APScheduler stopped")
+
+
 app = FastAPI(
     title="AI Infrastructure Intelligence Platform",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "http://localhost:5173"
+        "http://localhost:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -29,21 +64,20 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(servers.router)
 app.include_router(projects.router)
-app.include_router(stats.router)
 app.include_router(cleanup.router)
+app.include_router(stats.router)
 app.include_router(discovery.router)
+
 
 @app.get("/")
 def root():
-    return {
-        "message": "AI Infrastructure Intelligence Platform API",
-        "version": "1.0.0",
-        "status": "running"
-    }
+    return {"message": "AI Infrastructure Intelligence Platform", "status": "running"}
+
 
 @app.get("/health")
 def health():
     return {
         "status": "healthy",
-        "database": "connected"
+        "database": "connected",
+        "scheduler": "running" if scheduler.running else "stopped"
     }
