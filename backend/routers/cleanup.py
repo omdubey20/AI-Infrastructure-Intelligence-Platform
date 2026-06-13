@@ -1,130 +1,103 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from database import get_db
-from routers.auth import get_current_user
-import models, schemas
-from typing import List
-from datetime import datetime, timedelta
 
-router = APIRouter(prefix="/cleanup", tags=["Cleanup"])
+import models
+from database import get_db
+from services.duplicate_engine import analyze_duplicates
+
+router = APIRouter(
+    prefix="/cleanup",
+    tags=["Cleanup"]
+)
 
 
 @router.get("/report")
-def get_cleanup_report(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    three_years_ago = datetime.utcnow() - timedelta(days=1095)
-    one_year_ago = datetime.utcnow() - timedelta(days=365)
+def cleanup_report(db: Session = Depends(get_db)):
 
-    all_projects = db.query(models.Project).all()
+    discoveries = db.query(models.ProjectDiscovery).all()
 
-    # Find duplicates
-    name_count = {}
-    for p in all_projects:
-        name_count[p.name] = name_count.get(p.name, 0) + 1
+    duplicate_analysis = analyze_duplicates(discoveries)
 
-    report = []
-    for project in all_projects:
-        server = db.query(models.Server).filter(models.Server.id == project.server_id).first()
-        action = "keep"
+    analysis_map = {
+        item["id"]: item
+        for item in duplicate_analysis
+    }
 
-        if project.last_modified and project.last_modified < three_years_ago:
-            if not project.dns_points_here and not project.web_config_active:
-                action = "delete"
-        elif project.last_modified and project.last_modified < one_year_ago:
-            if not project.dns_points_here:
-                action = "archive"
-        elif name_count.get(project.name, 0) > 1 and not project.dns_points_here:
-            action = "remove_duplicate"
+    projects = []
 
-        report.append({
-            "project_id": project.id,
-            "project_name": project.name,
-            "server_name": server.name if server else "Unknown",
-            "server_id": project.server_id,
-            "status": project.status,
-            "last_modified": project.last_modified,
-            "dns_active": project.dns_points_here,
-            "web_config_active": project.web_config_active,
-            "size_mb": project.size_mb,
-            "is_duplicate": name_count.get(project.name, 0) > 1,
-            "recommended_action": action
-        })
+    delete_count = 0
+    archive_count = 0
+    keep_count = 0
+
+    for item in discoveries:
+
+        analysis = analysis_map[item.id]
+
+        recommendation = analysis["recommendation"]
+        duplicate_confidence = analysis["duplicate_confidence"]
+        reason = analysis["reason"]
+
+        if recommendation == "DELETE":
+            delete_count += 1
+
+        elif recommendation == "ARCHIVE":
+            archive_count += 1
+
+        else:
+            keep_count += 1
+
+        server_name = "Unknown"
+
+        if item.server:
+            server_name = item.server.name
+
+        projects.append(
+            {
+                "projectid": item.id,
+                "projectname": item.project_name,
+                "servername": server_name,
+                "riskscore": item.risk_score,
+                "recommendedaction": recommendation,
+                "duplicateconfidence": duplicate_confidence,
+                "reason": reason,
+                "dns_points_here": item.dns_points_here,
+                "web_config_active": item.web_config_active
+            }
+        )
 
     return {
-        "total_projects": len(all_projects),
-        "delete_candidates": len([r for r in report if r["recommended_action"] == "delete"]),
-        "archive_candidates": len([r for r in report if r["recommended_action"] == "archive"]),
-        "duplicate_candidates": len([r for r in report if r["recommended_action"] == "remove_duplicate"]),
-        "keep_count": len([r for r in report if r["recommended_action"] == "keep"]),
-        "projects": report
+        "totalprojects": len(discoveries),
+        "deletecandidates": delete_count,
+        "archivecandidates": archive_count,
+        "keepcount": keep_count,
+        "projects": projects
     }
 
 
 @router.post("/approve/{project_id}")
-def approve_cleanup_action(
+def approve_cleanup(
     project_id: int,
     action: str,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+
+    project = (
+        db.query(models.ProjectDiscovery)
+        .filter(
+            models.ProjectDiscovery.id == project_id
+        )
+        .first()
+    )
+
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    server = db.query(models.Server).filter(models.Server.id == project.server_id).first()
-
-    if action == "delete":
-        log = models.CleanupLog(
-            project_name=project.name,
-            server_name=server.name if server else "Unknown",
-            action="deleted",
-            performed_by=current_user.username,
-            notes="Deleted via cleanup approval"
-        )
-        db.add(log)
-        db.delete(project)
-        db.commit()
-        return {"message": f"Project '{project.name}' deleted successfully"}
-
-    elif action == "archive":
-        project.status = "archive"
-        log = models.CleanupLog(
-            project_name=project.name,
-            server_name=server.name if server else "Unknown",
-            action="archived",
-            performed_by=current_user.username,
-            notes="Archived via cleanup approval"
-        )
-        db.add(log)
-        db.commit()
-        return {"message": f"Project '{project.name}' archived successfully"}
-
-    elif action == "keep":
-        project.status = "live"
-        db.commit()
-        return {"message": f"Project '{project.name}' marked as keep"}
-
-    else:
-        raise HTTPException(status_code=400, detail="Invalid action. Use: delete, archive, keep")
-
-
-@router.get("/logs", response_model=List[schemas.CleanupLogOut])
-def get_cleanup_logs(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return db.query(models.CleanupLog).order_by(models.CleanupLog.performed_at.desc()).all()
-
-
-@router.get("/stats")
-def get_stats(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    total_servers = db.query(models.Server).count()
-    total_projects = db.query(models.Project).count()
-    live_projects = db.query(models.Project).filter(models.Project.status == "live").count()
-    unused_projects = db.query(models.Project).filter(models.Project.status == "unused").count()
-    online_servers = db.query(models.Server).filter(models.Server.status == "online").count()
+        return {
+            "success": False,
+            "message": "Project not found"
+        }
 
     return {
-        "total_servers": total_servers,
-        "total_projects": total_projects,
-        "live_projects": live_projects,
-        "unused_projects": unused_projects,
-        "online_servers": online_servers,
-        "offline_servers": total_servers - online_servers
+        "success": True,
+        "project_id": project_id,
+        "action": action,
+        "message": f"{action.upper()} approved"
     }

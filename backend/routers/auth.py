@@ -1,71 +1,264 @@
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
-import bcrypt
-import jwt
 from datetime import datetime, timedelta
-from database import get_db
-import models, schemas
 import os
+
+import bcrypt
 from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from sqlalchemy.orm import Session
+
+import models
+import schemas
+from database import get_db
 
 load_dotenv()
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
+router = APIRouter(
+    prefix="/auth",
+    tags=["Auth"]
+)
 
-SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440
+# =========================
+# JWT CONFIG
+# =========================
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+SECRET_KEY = os.getenv("SECRET_KEY")
 
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRETKEY environment variable is not configured"
+    )
+
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60)
+)
+
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/auth/login"
+)
+
+# =========================
+# PASSWORD HELPERS
+# =========================
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+def verify_password(
+    plain_password: str,
+    hashed_password: str
+) -> bool:
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"),
+        hashed_password.encode("utf-8")
+    )
 
+# =========================
+# JWT HELPERS
+# =========================
 
-def create_token(data: dict) -> str:
-    to_encode = data.copy()
-    to_encode.update({"exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+def create_access_token(data: dict) -> str:
+    payload = data.copy()
 
+    expire = datetime.utcnow() + timedelta(
+        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+    )
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    payload.update({"exp": expire})
+
+    return jwt.encode(
+        payload,
+        SECRET_KEY,
+        algorithm=ALGORITHM
+    )
+
+# =========================
+# CURRENT USER
+# =========================
+
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={
+            "WWW-Authenticate": "Bearer"
+        }
+    )
+
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
+
         username = payload.get("sub")
+
         if username is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        user = db.query(models.User).filter(models.User.username == username).first()
-        if user is None:
-            raise HTTPException(status_code=401, detail="User not found")
-        return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+            raise credentials_exception
 
+    except JWTError:
+        raise credentials_exception
 
-@router.post("/register", response_model=schemas.UserOut)
-def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    if db.query(models.User).filter(models.User.username == user.username).first():
-        raise HTTPException(status_code=400, detail="Username already exists")
-    hashed = hash_password(user.password)
-    new_user = models.User(username=user.username, hashed_password=hashed)
+    user = (
+        db.query(models.User)
+        .filter(
+            models.User.username == username
+        )
+        .first()
+    )
+
+    if user is None:
+        raise credentials_exception
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is disabled"
+        )
+
+    return user
+
+# =========================
+# ROLE CHECKER
+# =========================
+
+def require_role(allowed_roles: list):
+    def role_checker(
+        current_user=Depends(get_current_user)
+    ):
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to perform this action"
+            )
+
+        return current_user
+
+    return role_checker
+
+# =========================
+# REGISTER
+# =========================
+
+@router.post(
+    "/register",
+    response_model=schemas.UserOut,
+    status_code=status.HTTP_201_CREATED
+)
+def register(
+    user: schemas.UserCreate,
+    db: Session = Depends(get_db)
+):
+    existing_user = (
+        db.query(models.User)
+        .filter(
+            models.User.username == user.username
+        )
+        .first()
+    )
+
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Username already exists"
+        )
+
+    new_user = models.User(
+        username=user.username,
+        email=user.email,
+        hashed_password=hash_password(
+            user.password
+        ),
+        is_active=True
+    )
+
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
     return new_user
 
+# =========================
+# LOGIN
+# =========================
 
-@router.post("/login", response_model=schemas.Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    db_user = db.query(models.User).filter(models.User.username == form_data.username).first()
-    if not db_user or not verify_password(form_data.password, db_user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_token({"sub": db_user.username, "id": db_user.id})
-    return {"access_token": token, "token_type": "bearer"}
+@router.post(
+    "/login",
+    response_model=schemas.Token
+)
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    user = (
+        db.query(models.User)
+        .filter(
+            models.User.username == form_data.username
+        )
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={
+                "WWW-Authenticate": "Bearer"
+            }
+        )
+
+    if not verify_password(
+        form_data.password,
+        user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={
+                "WWW-Authenticate": "Bearer"
+            }
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is disabled"
+        )
+
+    access_token = create_access_token(
+        {
+            "sub": user.username,
+            "id": user.id,
+            "role": user.role
+        }
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
+
+# =========================
+# CURRENT USER INFO
+# =========================
+
+@router.get(
+    "/me",
+    response_model=schemas.UserOut
+)
+def get_me(
+    current_user=Depends(
+        get_current_user
+    )
+):
+    return current_user

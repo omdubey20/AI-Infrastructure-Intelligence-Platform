@@ -1,75 +1,119 @@
-from pydantic import BaseModel
-from typing import Optional, List
 from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, EmailStr
 
 
-# ─── Auth ───────────────────────────────────────
+# ==================================================
+# USER SCHEMAS
+# ==================================================
+
 class UserCreate(BaseModel):
     username: str
-    email: str
+    email: EmailStr
     password: str
+
 
 class UserOut(BaseModel):
     id: int
     username: str
-    email: str
+    email: Optional[str] = None
     is_active: bool
+    role: str
+
     class Config:
         from_attributes = True
+
+
+# ==================================================
+# AUTH SCHEMAS
+# ==================================================
 
 class Token(BaseModel):
     access_token: str
     token_type: str
 
 
-# ─── Server ─────────────────────────────────────
-class ServerCreate(BaseModel):
-    name: str
-    ip_address: str
-    os_type: str
-    web_server: str
-    ssh_username: str
-    ssh_password: Optional[str] = None
-    ssh_key_path: Optional[str] = None
-    ssh_port: int = 22
+# ==================================================
+# SERVER SCHEMAS
+# ==================================================
 
-class ServerOut(BaseModel):
-    id: int
+class ServerBase(BaseModel):
     name: str
     ip_address: str
-    os_type: str
-    web_server: str
-    status: str
-    last_scanned: Optional[datetime]
+    environment: str = "production"
+    status: str = "active"
+    description: Optional[str] = None
+
+
+class ServerCreate(ServerBase):
+    pass
+
+
+class ServerUpdate(ServerBase):
+    pass
+
+
+class ServerOut(ServerBase):
+    id: int
     created_at: datetime
+    cpu_usage: int = 0
+    memory_usage: int = 0
+    disk_usage: int = 0
+    error_count: int = 0
+    uptime_days: int = 0
+    risk_score: int = 0
+
     class Config:
         from_attributes = True
 
 
-# ─── Project ────────────────────────────────────
-class ProjectOut(BaseModel):
-    id: int
+# ==================================================
+# PROJECT SCHEMAS
+# ==================================================
+
+class ProjectBase(BaseModel):
     name: str
-    path: str
-    size_mb: float
-    last_modified: Optional[datetime]
-    domain: Optional[str]
-    dns_points_here: bool
-    web_config_active: bool
-    status: str
-    server_id: int
+    description: Optional[str] = None
+    status: str = "active"
+    server_id: Optional[int] = None
+
+
+class ProjectCreate(ProjectBase):
+    pass
+
+
+class ProjectUpdate(ProjectBase):
+    pass
+
+
+class ProjectOut(ProjectBase):
+    id: int
     created_at: datetime
+    risk_score: int = 0
+
     class Config:
         from_attributes = True
 
 
-# ─── Cleanup ────────────────────────────────────
-class CleanupLogOut(BaseModel):
-    id: int
+# ==================================================
+# DASHBOARD / ANALYTICS SCHEMAS
+# ==================================================
+
+class DashboardStats(BaseModel):
+    total_servers: int
+    total_projects: int
+    active_projects: int
+    inactive_projects: int
+
+
+# ==================================================
+# AI RISK ENGINE SCHEMAS
+# ==================================================
+
+class RiskAnalysis(BaseModel):
+    project_id: int
     project_name: str
-    server_name: str
-    action: str
-    performed_by: str
-    performed_at: datetime
-    class Config:
-        from_attributes = True
+    risk_score: int
+    risk_level: str
+    recommendation: str
