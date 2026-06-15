@@ -1,26 +1,30 @@
 import React, { useEffect, useState } from "react";
-import { useAuth } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
+import Sidebar from "../components/Sidebar";
+import StatCard from "../components/StatCard";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend
+  PieChart, Pie, Cell, Legend,
 } from "recharts";
 
-const NAV = [
-  { path: "/", icon: "📊", label: "Dashboard" },
-  { path: "/servers", icon: "🖥️", label: "Servers" },
-  { path: "/projects", icon: "📁", label: "Projects" },
-  { path: "/cleanup", icon: "🧹", label: "Cleanup" }
-];
+const PIE_COLORS = ["#22c55e", "#f59e0b", "#f87171"];
 
-const PIE_COLORS = ["#22c55e", "#f59e0b", "#ef4444"];
+const TooltipStyle = {
+  contentStyle: {
+    background: "#0F1829", border: "1px solid #1E3048",
+    color: "#E2E8F0", borderRadius: "8px", fontSize: "12px",
+  },
+};
+
+function RiskBadge({ score }) {
+  if (score >= 70) return <span className="badge badge-red">Critical</span>;
+  if (score >= 40) return <span className="badge badge-amber">Warning</span>;
+  return <span className="badge badge-green">Healthy</span>;
+}
 
 export default function Dashboard() {
-  const { logout } = useAuth();
-  const navigate = useNavigate();
-  const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
+  const [scanning, setScanning]       = useState(false);
+  const [scanResult, setScanResult]   = useState(null);
   const [lastScanned, setLastScanned] = useState(null);
   const [stats, setStats] = useState({
     total_servers: 0,
@@ -28,198 +32,200 @@ export default function Dashboard() {
     healthy_servers: 0,
     warning_servers: 0,
     critical_servers: 0,
-    top_risk_servers: []
+    top_risk_servers: [],
   });
 
-  const fetchStats = () => {
-    api.get("/stats/dashboard").then((res) => setStats(res.data)).catch(console.error);
-  };
+  const fetchStats = () =>
+    api.get("/stats/dashboard").then(r => setStats(r.data)).catch(console.error);
 
   useEffect(() => { fetchStats(); }, []);
 
   const handleScan = async () => {
-    setScanning(true);
-    setScanResult(null);
+    setScanning(true); setScanResult(null);
     try {
       const res = await api.post("/discovery/scan");
-      setScanResult({ success: true, message: `Scanned ${res.data.servers_scanned} server(s) successfully` });
+      setScanResult({ ok: true, msg: `Scanned ${res.data.servers_scanned} server(s) successfully` });
       setLastScanned(new Date().toLocaleTimeString());
       fetchStats();
     } catch {
-      setScanResult({ success: false, message: "Scan failed. Check backend logs." });
+      setScanResult({ ok: false, msg: "Scan failed. Check backend logs." });
     } finally {
       setScanning(false);
     }
   };
 
-  const cards = [
-    { label: "Total Servers", value: stats.total_servers, icon: "🖥️", color: "#3b82f6" },
-    { label: "Projects", value: stats.total_projects, icon: "📁", color: "#10b981" },
-    { label: "Healthy", value: stats.healthy_servers, icon: "✅", color: "#22c55e" },
-    { label: "Warnings", value: stats.warning_servers, icon: "⚠️", color: "#f59e0b" },
-    { label: "Critical", value: stats.critical_servers, icon: "🚨", color: "#ef4444" }
-  ];
-
   const barData = stats.top_risk_servers.map(s => ({
-    name: s.name.length > 12 ? s.name.slice(0, 12) + "…" : s.name,
-    CPU: s.cpu_usage || 0,
+    name: s.name.length > 12 ? s.name.slice(0, 12) + "..." : s.name,
+    CPU:    s.cpu_usage    || 0,
     Memory: s.memory_usage || 0,
-    Disk: s.disk_usage || 0,
+    Disk:   s.disk_usage   || 0,
   }));
 
   const pieData = [
-    { name: "Healthy", value: stats.healthy_servers || 0 },
-    { name: "Warning", value: stats.warning_servers || 0 },
+    { name: "Healthy",  value: stats.healthy_servers  || 0 },
+    { name: "Warning",  value: stats.warning_servers  || 0 },
     { name: "Critical", value: stats.critical_servers || 0 },
   ].filter(d => d.value > 0);
 
-  const card = { background: "#1e293b", padding: "24px", borderRadius: "12px", border: "1px solid #334155" };
-
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#0f172a" }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <div className="page-layout">
+      <Sidebar />
+      <main className="page-main">
 
-      <aside style={{ width: "250px", background: "#1e293b", padding: "24px 16px", borderRight: "1px solid #334155", flexShrink: 0 }}>
-        <h2 style={{ color: "white", marginBottom: "32px", fontSize: "16px", fontWeight: "bold" }}>ServerManager Pro</h2>
-        {NAV.map((item) => (
-          <div key={item.path} onClick={() => navigate(item.path)}
-            style={{ padding: "12px", marginBottom: "8px", borderRadius: "8px", cursor: "pointer",
-              color: window.location.pathname === item.path ? "white" : "#94a3b8",
-              background: window.location.pathname === item.path ? "#2563eb" : "transparent" }}>
-            {item.icon} {item.label}
-          </div>
-        ))}
-        <div onClick={() => { logout(); navigate("/login"); }}
-          style={{ marginTop: "40px", color: "#ef4444", cursor: "pointer", padding: "12px" }}>
-          🚪 Logout
-        </div>
-      </aside>
-
-      <main style={{ flex: 1, padding: "32px", overflowY: "auto" }}>
-
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between",
+          alignItems: "flex-start", marginBottom: "28px" }}>
           <div>
-            <h1 style={{ color: "white", marginBottom: "4px", fontSize: "26px", fontWeight: "bold" }}>
-              Infrastructure Dashboard
+            <p style={{ fontSize: "11px", color: "var(--accent)", fontWeight: 700,
+              letterSpacing: "0.12em", marginBottom: "6px" }}>INFRASTRUCTURE OVERVIEW</p>
+            <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--txt-1)", marginBottom: "4px" }}>
+              Dashboard
             </h1>
-            <p style={{ color: "#94a3b8", margin: 0 }}>Real-time server health and risk monitoring</p>
+            <p style={{ fontSize: "13px", color: "var(--txt-2)" }}>
+              Real-time server health and risk monitoring
+            </p>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
-            <button onClick={handleScan} disabled={scanning}
-              style={{ background: scanning ? "#1e3a5f" : "#2563eb", color: "white", border: "none",
-                padding: "12px 24px", borderRadius: "8px", cursor: scanning ? "not-allowed" : "pointer",
-                fontWeight: "600", fontSize: "14px", display: "flex", alignItems: "center", gap: "8px" }}>
-              {scanning ? (
-                <>
-                  <span style={{ display: "inline-block", width: "14px", height: "14px",
-                    border: "2px solid white", borderTopColor: "transparent", borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite" }} />
-                  Scanning...
-                </>
-              ) : "🔍 Scan All Servers"}
+            <button onClick={handleScan} disabled={scanning} className="btn-primary">
+              {scanning
+                ? <><span className="spinner" /> Scanning...</>
+                : <><span>+</span> Scan All Servers</>}
             </button>
             {lastScanned && (
-              <span style={{ color: "#64748b", fontSize: "12px" }}>Last scanned: {lastScanned}</span>
+              <span style={{ fontSize: "11px", color: "var(--txt-3)" }}>
+                Last scan: {lastScanned}
+              </span>
             )}
           </div>
         </div>
 
+        {/* Scan Result Banner */}
         {scanResult && (
-          <div style={{ padding: "12px 16px", borderRadius: "8px", marginBottom: "24px",
-            background: scanResult.success ? "#052e16" : "#2d0a0a",
-            border: `1px solid ${scanResult.success ? "#16a34a" : "#dc2626"}`,
-            color: scanResult.success ? "#4ade80" : "#f87171", fontSize: "14px" }}>
-            {scanResult.success ? "✅" : "❌"} {scanResult.message}
+          <div className="animate-fadein" style={{
+            padding: "12px 16px", borderRadius: "8px", marginBottom: "24px",
+            background: scanResult.ok ? "rgba(34,197,94,0.07)" : "rgba(248,113,113,0.07)",
+            border: scanResult.ok ? "1px solid rgba(34,197,94,0.25)" : "1px solid rgba(248,113,113,0.25)",
+            color: scanResult.ok ? "#4ade80" : "var(--red)",
+            fontSize: "13px", display: "flex", alignItems: "center", gap: "8px",
+          }}>
+            {scanResult.ok ? "OK" : "ERR"} {scanResult.msg}
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "16px", marginBottom: "28px" }}>
-          {cards.map((c) => (
-            <div key={c.label} style={card}>
-              <div style={{ fontSize: "26px", marginBottom: "8px" }}>{c.icon}</div>
-              <div style={{ color: "#94a3b8", fontSize: "13px" }}>{c.label}</div>
-              <div style={{ color: c.color, fontSize: "32px", fontWeight: "bold" }}>{c.value}</div>
-            </div>
-          ))}
+        {/* Stat Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+          gap: "14px", marginBottom: "28px" }}>
+          <StatCard title="Total Servers" value={stats.total_servers}    icon="S" color="blue"  />
+          <StatCard title="Projects"      value={stats.total_projects}   icon="P" color="teal"  />
+          <StatCard title="Healthy"       value={stats.healthy_servers}  icon="H" color="green" />
+          <StatCard title="Warning"       value={stats.warning_servers}  icon="W" color="amber" />
+          <StatCard title="Critical"      value={stats.critical_servers} icon="C" color="red"   />
         </div>
 
+        {/* Charts Row */}
         {stats.top_risk_servers.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "20px", marginBottom: "28px" }}>
-            <div style={card}>
-              <h3 style={{ color: "white", marginBottom: "16px", fontSize: "15px", fontWeight: "600" }}>
-                📊 Server Resource Usage
-              </h3>
-              <ResponsiveContainer width="100%" height={220}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr",
+            gap: "16px", marginBottom: "24px" }}>
+
+            <div className="card">
+              <p className="section-title">Server Resource Usage</p>
+              <ResponsiveContainer width="100%" height={210}>
                 <BarChart data={barData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                  <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 12 }} />
-                  <YAxis tick={{ fill: "#94a3b8", fontSize: 12 }} domain={[0, 100]} />
-                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #334155", color: "white", borderRadius: "8px" }} />
-                  <Legend wrapperStyle={{ color: "#94a3b8", fontSize: 12 }} />
-                  <Bar dataKey="CPU" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Memory" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Disk" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 11 }} domain={[0, 100]} axisLine={false} tickLine={false} />
+                  <Tooltip {...TooltipStyle} />
+                  <Legend wrapperStyle={{ color: "#64748b", fontSize: 11 }} />
+                  <Bar dataKey="CPU"    fill="#38BDF8" radius={[4,4,0,0]} />
+                  <Bar dataKey="Memory" fill="#2DD4BF" radius={[4,4,0,0]} />
+                  <Bar dataKey="Disk"   fill="#F59E0B" radius={[4,4,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
-            <div style={card}>
-              <h3 style={{ color: "white", marginBottom: "16px", fontSize: "15px", fontWeight: "600" }}>
-                🟢 Server Health
-              </h3>
+            <div className="card">
+              <p className="section-title">Health Distribution</p>
               {pieData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="100%" height={210}>
                   <PieChart>
-                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={85}
+                    <Pie data={pieData} cx="50%" cy="50%"
+                      innerRadius={55} outerRadius={82}
                       paddingAngle={4} dataKey="value">
-                      {pieData.map((entry, index) => (
-                        <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                      {pieData.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #334155", color: "white", borderRadius: "8px" }} />
-                    <Legend wrapperStyle={{ color: "#94a3b8", fontSize: 12 }} />
+                    <Tooltip {...TooltipStyle} />
+                    <Legend wrapperStyle={{ color: "#64748b", fontSize: 11 }} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <p style={{ color: "#94a3b8", fontSize: "13px" }}>Run a scan to see health data</p>
+                <p style={{ color: "var(--txt-3)", fontSize: "13px", marginTop: "16px" }}>
+                  Run a scan to see data
+                </p>
               )}
             </div>
           </div>
         )}
 
-        <div style={card}>
-          <h2 style={{ color: "white", marginBottom: "20px", fontSize: "16px", fontWeight: "600" }}>
-            🚨 Top Risk Servers
-          </h2>
+        {/* Top Risk Servers */}
+        <div className="card">
+          <p className="section-title">Top Risk Servers</p>
           {stats.top_risk_servers.length === 0 ? (
-            <p style={{ color: "#94a3b8" }}>No servers found. Click Scan All Servers to discover.</p>
+            <div style={{ textAlign: "center", padding: "40px 0" }}>
+              <div style={{ fontSize: "32px", marginBottom: "12px" }}>+</div>
+              <p style={{ color: "var(--txt-2)", fontWeight: 600, marginBottom: "4px" }}>No servers found</p>
+              <p style={{ color: "var(--txt-3)", fontSize: "13px" }}>
+                Click Scan All Servers to discover your infrastructure
+              </p>
+            </div>
           ) : (
             stats.top_risk_servers.map((server) => (
-              <div key={server.id} style={{ padding: "16px", marginBottom: "12px", borderRadius: "10px",
-                background: "#0f172a", border: "1px solid #334155" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ color: "white", fontWeight: "bold", fontSize: "15px" }}>{server.name}</div>
-                    <div style={{ color: "#94a3b8", fontSize: "13px" }}>{server.ip_address}</div>
+              <div key={server.id} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "16px", marginBottom: "10px", borderRadius: "10px",
+                background: "var(--bg-panel)", border: "1px solid var(--border)",
+                transition: "border-color 0.2s",
+              }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = "var(--border-lit)"}
+                onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, color: "var(--txt-1)", fontSize: "14px", marginBottom: "4px" }}>
+                    {server.name}
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: server.risk_score >= 70 ? "#ef4444" : server.risk_score >= 40 ? "#f59e0b" : "#22c55e",
-                      fontWeight: "bold", fontSize: "16px" }}>
-                      Risk {server.risk_score}
+                  <div style={{ fontSize: "12px", color: "var(--txt-3)" }}>{server.ip_address}</div>
+                  {server.insights?.map((insight, i) => (
+                    <div key={i} style={{ marginTop: "4px", color: "var(--amber)", fontSize: "12px" }}>
+                      - {insight}
                     </div>
-                    <div style={{ display: "flex", gap: "8px", marginTop: "4px", justifyContent: "flex-end" }}>
-                      <span style={{ fontSize: "11px", color: "#64748b" }}>CPU: {server.cpu_usage}%</span>
-                      <span style={{ fontSize: "11px", color: "#64748b" }}>MEM: {server.memory_usage}%</span>
-                      <span style={{ fontSize: "11px", color: "#64748b" }}>DISK: {server.disk_usage}%</span>
-                    </div>
+                  ))}
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "24px" }}>
+                  <div style={{ marginBottom: "6px" }}>
+                    <RiskBadge score={server.risk_score} />
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--txt-3)", fontWeight: 600, letterSpacing: "0.05em" }}>
+                    Risk Score: <span style={{
+                      color: server.risk_score >= 70 ? "var(--red)" : server.risk_score >= 40 ? "var(--amber)" : "var(--green)"
+                    }}>{server.risk_score}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "12px", marginTop: "6px", justifyContent: "flex-end" }}>
+                    {[["CPU", server.cpu_usage], ["MEM", server.memory_usage], ["DISK", server.disk_usage]].map(([lbl, val]) => (
+                      <div key={lbl} style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: "10px", color: "var(--txt-3)", marginBottom: "2px" }}>{lbl}</div>
+                        <div style={{ fontSize: "12px", fontWeight: 700,
+                          color: val >= 80 ? "var(--red)" : val >= 60 ? "var(--amber)" : "var(--txt-2)" }}>
+                          {val ?? 0}%
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                {server.insights?.map((insight, i) => (
-                  <div key={i} style={{ marginTop: "6px", color: "#f59e0b", fontSize: "13px" }}>• {insight}</div>
-                ))}
               </div>
             ))
           )}
         </div>
+
       </main>
     </div>
   );

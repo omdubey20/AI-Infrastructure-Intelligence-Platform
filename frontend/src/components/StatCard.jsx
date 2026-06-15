@@ -1,14 +1,41 @@
-import React from 'react';
-const colors = {
-  blue: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  green: 'bg-green-500/10 text-green-400 border-green-500/20',
-  yellow: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+import React from "react";
+
+const THEMES = {
+  blue:   { accent: "#38BDF8", bg: "rgba(56,189,248,0.07)",  border: "rgba(56,189,248,0.18)"  },
+  green:  { accent: "#22C55E", bg: "rgba(34,197,94,0.07)",   border: "rgba(34,197,94,0.18)"   },
+  amber:  { accent: "#F59E0B", bg: "rgba(245,158,11,0.07)",  border: "rgba(245,158,11,0.18)"  },
+  red:    { accent: "#F87171", bg: "rgba(248,113,113,0.07)", border: "rgba(248,113,113,0.18)" },
+  teal:   { accent: "#2DD4BF", bg: "rgba(45,212,191,0.07)",  border: "rgba(45,212,191,0.18)"  },
 };
-export default function StatCard({ title, value, color = 'blue' }) {
+
+export default function StatCard({ title, value, icon, color = "blue", subtitle }) {
+  const t = THEMES[color] || THEMES.blue;
   return (
-    <div className={`rounded-xl border p-5 ${colors[color]}`}>
-      <p className='text-xs font-medium uppercase tracking-wide opacity-70 mb-3'>{title}</p>
-      <p className='text-3xl font-bold'>{value}</p>
+    <div className="animate-fadein" style={{
+      background: "var(--bg-card)",
+      border: `1px solid ${t.border}`,
+      borderRadius: "12px", padding: "20px 22px",
+      transition: "transform 0.15s, border-color 0.2s",
+      cursor: "default",
+    }}
+      onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+      onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
+        <p style={{ fontSize: "11px", fontWeight: 700, color: "var(--txt-3)",
+          letterSpacing: "0.1em", textTransform: "uppercase" }}>{title}</p>
+        {icon && (
+          <div style={{ width: "30px", height: "30px", borderRadius: "8px",
+            background: t.bg, display: "flex", alignItems: "center",
+            justifyContent: "center", fontSize: "15px" }}>{icon}</div>
+        )}
+      </div>
+      <p style={{ fontSize: "32px", fontWeight: 800, color: t.accent, lineHeight: 1, marginBottom: subtitle ? "6px" : 0 }}>
+        {value ?? "—"}
+      </p>
+      {subtitle && (
+        <p style={{ fontSize: "12px", color: "var(--txt-3)", marginTop: "4px" }}>{subtitle}</p>
+      )}
     </div>
   );
 }
