@@ -12,7 +12,7 @@ export default function StatCard({ title, value, icon, color = "blue", subtitle 
   const t = THEMES[color] || THEMES.blue;
   return (
     <div className="animate-fadein" style={{
-      background: "var(--bg-card)",
+      background: "#111c2e",
       border: `1px solid ${t.border}`,
       borderRadius: "12px", padding: "20px 22px",
       transition: "transform 0.15s, border-color 0.2s",
@@ -22,7 +22,7 @@ export default function StatCard({ title, value, icon, color = "blue", subtitle 
       onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
-        <p style={{ fontSize: "11px", fontWeight: 700, color: "var(--txt-3)",
+        <p style={{ fontSize: "11px", fontWeight: 700, color: "#64748b",
           letterSpacing: "0.1em", textTransform: "uppercase" }}>{title}</p>
         {icon && (
           <div style={{ width: "30px", height: "30px", borderRadius: "8px",
@@ -34,7 +34,7 @@ export default function StatCard({ title, value, icon, color = "blue", subtitle 
         {value ?? "—"}
       </p>
       {subtitle && (
-        <p style={{ fontSize: "12px", color: "var(--txt-3)", marginTop: "4px" }}>{subtitle}</p>
+        <p style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>{subtitle}</p>
       )}
     </div>
   );

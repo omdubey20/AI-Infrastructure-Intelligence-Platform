@@ -16,6 +16,7 @@
   --border-lit: #2b4565;
   --accent:     #38bdf8;
   --accent-dim: #0ea5e9;
+  --accent-2:   #6366f1;
   --teal:       #2dd4bf;
   --green:      #22c55e;
   --amber:      #f59e0b;
@@ -33,7 +34,7 @@ html, body, #root {
   background:
     radial-gradient(circle at top, rgba(56,189,248,0.08), transparent 28%),
     linear-gradient(180deg, #08101d 0%, #080e1a 100%);
-  color: var(--txt-1);
+  color: #0f172a;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

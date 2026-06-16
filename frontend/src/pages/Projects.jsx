@@ -1,21 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../api/axios';
-import { useAuth } from '../context/AuthContext';
 
-const NAV = [
-  { path: '/', label: 'Dashboard' },
-  { path: '/servers', label: 'Servers' },
-  { path: '/projects', label: 'Projects' },
-  { path: '/cleanup', label: 'Cleanup' },
-];
 
 const FILTERS = ['all', 'live', 'unused', 'duplicates'];
 
 export default function Projects() {
-  const { logout } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
   const [projects, setProjects] = useState([]);
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
@@ -46,26 +35,7 @@ export default function Projects() {
     score >= 70 ? '#ef4444' : score >= 40 ? '#f59e0b' : '#22c55e';
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#0f172a' }}>
-      <aside style={{ width: '240px', background: '#1e293b', padding: '24px 16px', borderRight: '1px solid #334155' }}>
-        <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 'bold', marginBottom: '32px' }}>
-          ServerManager Pro
-        </h2>
-        {NAV.map((item) => {
-          const active = location.pathname === item.path;
-          return (
-            <div key={item.path} onClick={() => navigate(item.path)}
-              style={{ padding: '10px 16px', borderRadius: '8px', color: active ? 'white' : '#94a3b8',
-                background: active ? '#2563eb' : 'transparent', cursor: 'pointer', marginBottom: '4px' }}>
-              {item.label}
-            </div>
-          );
-        })}
-        <div onClick={() => { logout(); navigate('/login'); }}
-          style={{ padding: '10px 16px', color: '#ef4444', cursor: 'pointer', marginTop: '32px' }}>
-          Logout
-        </div>
-      </aside>
+    <div style={{ padding: "32px" }}>
 
       <main style={{ flex: 1, padding: '32px' }}>
         <div style={{ marginBottom: '24px' }}>

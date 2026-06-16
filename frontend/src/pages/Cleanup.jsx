@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+
 import api from "../api/axios";
 
 export default function Cleanup() {
-  const navigate = useNavigate();
   const [report, setReport] = useState(null);
 
   useEffect(() => {
@@ -16,20 +15,7 @@ export default function Cleanup() {
   };
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#0f172a" }}>
-      <aside style={{ width: "240px", background: "#1e293b", padding: "24px 16px", borderRight: "1px solid #334155" }}>
-        <h2 style={{ color: "white", fontSize: "18px", fontWeight: "bold", marginBottom: "32px" }}>ServerManager Pro</h2>
-        {["/", "/servers", "/projects", "/cleanup"].map((path, i) => {
-          const labels = ["Dashboard", "Servers", "Projects", "Cleanup"];
-          const icons = ["📊", "🖥️", "📁", "🧹"];
-          return (
-            <div key={path} onClick={() => navigate(path)} style={{ padding: "10px 16px", borderRadius: "8px", color: window.location.pathname === path ? "white" : "#94a3b8", background: window.location.pathname === path ? "#2563eb" : "transparent", cursor: "pointer", marginBottom: "4px", display: "flex", alignItems: "center", gap: "10px" }}>
-              <span>{icons[i]}</span><span>{labels[i]}</span>
-            </div>
-          );
-        })}
-      </aside>
-      <main style={{ flex: 1, padding: "32px" }}>
+    <div style={{ padding: "32px" }}>
         <h1 style={{ color: "white", fontSize: "28px", fontWeight: "bold", marginBottom: "24px" }}>Cleanup</h1>
         {report && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "16px", marginBottom: "32px" }}>
@@ -49,7 +35,20 @@ export default function Cleanup() {
             <div key={p.projectid} style={{ padding: "16px 24px", borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <p style={{ color: "white", fontWeight: "600" }}>{p.projectname}</p>
-                <p style={{ color: "#94a3b8", fontSize: "12px" }}>{p.servername} • {p.recommendedaction}</p>
+                <p style={{ color: "#94a3b8", fontSize: "12px" }}>{p.servername} • {p.reason}</p>
+                <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                  <span style={{ fontSize: "11px", background: "rgba(56,189,248,0.1)", color: "#38bdf8", padding: "2px 8px", borderRadius: "4px" }}>
+                    Risk: {p.riskscore}
+                  </span>
+                  {p.duplicateconfidence > 0 && (
+                    <span style={{ fontSize: "11px", background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "2px 8px", borderRadius: "4px" }}>
+                      Duplicate: {p.duplicateconfidence}%
+                    </span>
+                  )}
+                  <span style={{ fontSize: "11px", background: p.dns_points_here ? "rgba(34,197,94,0.1)" : "rgba(248,113,113,0.1)", color: p.dns_points_here ? "#22c55e" : "#f87171", padding: "2px 8px", borderRadius: "4px" }}>
+                    DNS: {p.dns_points_here ? "Live" : "Dead"}
+                  </span>
+                </div>
               </div>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button onClick={() => handleAction(p.projectid, "delete")} style={{ background: "#ef444420", color: "#ef4444", border: "none", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>Delete</button>
@@ -59,7 +58,6 @@ export default function Cleanup() {
             </div>
           ))}
         </div>
-      </main>
-    </div>
+      </div>
   );
 }

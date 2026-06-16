@@ -1,12 +1,109 @@
-import React from 'react';
+import React from "react";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
-function App() {
+import Sidebar from "./components/Sidebar";
+
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Servers from "./pages/Servers";
+import Projects from "./pages/Projects";
+import Cleanup from "./pages/Cleanup";
+
+function PrivateRoute({ children }) {
+  const token = localStorage.getItem("token");
+
+  return token
+    ? children
+    : <Navigate to="/login" />;
+}
+
+function Layout({ children }) {
   return (
-    <div style={{ padding: '20px', backgroundColor: '#f0f0f0' }}>
-      <h1>THIS IS APP.JSX</h1>
-      <p style={{ color: 'red', fontSize: '20px' }}>App is working!</p>
+    <div
+      style={{
+        display: "flex",
+        minHeight: "100vh",
+        width: "100%",
+        background:
+          "linear-gradient(180deg,#08101d 0%,#080e1a 100%)"
+      }}
+    >
+      <Sidebar />
+
+      <main
+        style={{
+          flex: 1,
+          minHeight: "100vh",
+          overflowY: "auto",
+          background: "transparent"
+        }}
+      >
+        {children}
+      </main>
     </div>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <Router>
+      <Routes>
+
+        <Route
+          path="/login"
+          element={<Login />}
+        />
+
+        <Route
+          path="/dashboard"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <Dashboard />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/servers"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <Servers />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/projects"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <Projects />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/cleanup"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <Cleanup />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="*"
+          element={<Navigate to="/dashboard" />}
+        />
+
+      </Routes>
+    </Router>
+  );
+}
