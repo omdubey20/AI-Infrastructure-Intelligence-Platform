@@ -55,15 +55,15 @@ export default function Servers() {
   const lbl = { display:"block", color:"#94a3b8", fontSize:"12px", fontWeight:600, marginBottom:"6px" };
 
   return (
-    <div style={{ padding:"32px" }}>
+    <div style={{ padding:"32px", background:"#080e1a", minHeight:"100vh" }}>
 
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"28px" }}>
         <div>
           <p style={{ fontSize:"11px", color:"#38bdf8", fontWeight:700, letterSpacing:"0.12em", marginBottom:"6px" }}>INFRASTRUCTURE</p>
           <h1 style={{ fontSize:"24px", fontWeight:800, color:"#f1f5f9" }}>Servers</h1>
-          <p style={{ fontSize:"13px", color:"#64748b", marginTop:"4px" }}>{servers.length} server(s) registered</p>
+          <p style={{ fontSize:"13px", color:"#94a3b8", marginTop:"4px" }}>{servers.length} server(s) registered</p>
         </div>
-        <button onClick={openAddForm} style={{ background:"#38bdf8", color:"#0f172a", border:"none", padding:"10px 20px", borderRadius:"8px", fontWeight:700, cursor:"pointer" }}>+ Add Server</button>
+        <button onClick={openAddForm} className="btn-primary">+ Add Server</button>
       </div>
 
       {error && <div style={{ background:"rgba(248,113,113,0.08)", border:"1px solid rgba(248,113,113,0.25)", borderRadius:"8px", padding:"12px 16px", marginBottom:"20px", color:"#f87171", fontSize:"13px" }}>{error}</div>}
@@ -76,7 +76,7 @@ export default function Servers() {
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:"12px" }}>
           {servers.map(server => (
-            <div key={server.id} style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:"12px", padding:"20px 24px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div key={server.id} className="card" style={{ padding:"20px 24px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div>
                 <div style={{ fontWeight:700, color:"#f1f5f9", fontSize:"16px", marginBottom:"4px" }}>{server.name}</div>
                 <div style={{ fontSize:"13px", color:"#64748b" }}>{server.ip_address} · {server.environment} · {server.status}</div>
