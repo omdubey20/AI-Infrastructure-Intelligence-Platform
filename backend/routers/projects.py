@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from sqlalchemy.orm import joinedload
 from database import get_db
 from routers.auth import get_current_user
 import models
@@ -29,7 +30,7 @@ def get_all_projects(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    projects = db.query(models.ProjectDiscovery).all()
+    projects = db.query(models.ProjectDiscovery).options(joinedload(models.ProjectDiscovery.server)).all()
     return [serialize_project(p) for p in projects]
 
 

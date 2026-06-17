@@ -1,13 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-import models
+import models, time
 from database import get_db
+from routers.auth import get_current_user
 from services.duplicate_engine import analyze_duplicates
+
+_cleanup_cache = {"data": None, "ts": 0}
+CACHE_TTL = 300
 
 router = APIRouter(prefix="/cleanup", tags=["Cleanup"])
 
 @router.get("/report")
-def cleanup_report(db: Session = Depends(get_db)):
+def cleanup_report(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    global _cleanup_cache
+    now = time.time()
+    if _cleanup_cache["data"] and (now - _cleanup_cache["ts"]) < CACHE_TTL:
+        return _cleanup_cache["data"]
     discoveries = db.query(models.ProjectDiscovery).all()
     duplicate_analysis = analyze_duplicates(discoveries)
     analysis_map = {item["id"]: item for item in duplicate_analysis}
@@ -39,13 +47,15 @@ def cleanup_report(db: Session = Depends(get_db)):
             "created_at": item.created_at.isoformat()
         })
 
-    return {
+    result = {
         "totalprojects": len(discoveries),
         "deletecandidates": delete_count,
         "archivecandidates": archive_count,
         "keepcount": keep_count,
         "projects": projects
     }
+    _cleanup_cache = {"data": result, "ts": now}
+    return result
 
 @router.post("/approve/{project_id}")
 def approve_cleanup(project_id: int, action: str, db: Session = Depends(get_db)):
