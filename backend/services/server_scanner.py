@@ -155,6 +155,7 @@ def scan_server_projects(db, server):
                 risk_score=random.randint(10, 90)
             )
             db.add(discovery)
+            db.commit()
 
         client.close()
 
