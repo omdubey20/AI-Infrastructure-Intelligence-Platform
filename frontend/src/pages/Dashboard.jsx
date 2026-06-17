@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import api from "../api/axios";
-import { useData } from "../context/DataContext";
 import StatCard from "../components/StatCard";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -35,15 +34,10 @@ export default function Dashboard() {
     top_risk_servers: [],
   });
 
-  const { stats: preloadedStats, refresh } = useData();
-
   const fetchStats = () =>
     api.get("/stats/dashboard").then(r => setStats(r.data)).catch(console.error);
 
-  useEffect(() => {
-    if (preloadedStats) setStats(preloadedStats);
-    else fetchStats();
-  }, [preloadedStats]);
+  useEffect(() => { fetchStats(); }, []);
 
   const handleScan = async () => {
     setScanning(true); setScanResult(null);
