@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import api from "../api/axios";
+import { useData } from "../context/DataContext";
 
 const initialForm = { name: "", ip_address: "", environment: "production", status: "active", description: "" };
 
@@ -24,7 +25,15 @@ export default function Servers() {
     }
   };
 
-  useEffect(() => { fetchServers(); }, []);
+  const { servers: preloaded } = useData();
+  useEffect(() => {
+    if (preloaded && preloaded.length > 0) {
+      setServers(preloaded);
+      setFetching(false);
+    } else {
+      fetchServers();
+    }
+  }, [preloaded]);
 
   const openAddForm = () => { setEditServer(null); setForm(initialForm); setError(""); setShowForm(true); };
 
