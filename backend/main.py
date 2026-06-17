@@ -13,10 +13,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-try:
-    Base.metadata.create_all(bind=engine, checkfirst=True)
-except Exception:
-    pass
+Base.metadata.create_all(bind=engine, checkfirst=True)
 
 scheduler = BackgroundScheduler()
 
