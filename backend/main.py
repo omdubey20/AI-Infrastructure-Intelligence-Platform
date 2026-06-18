@@ -71,7 +71,7 @@ app.include_router(stats.router)
 app.include_router(discovery.router)
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"message": "AI Infrastructure Intelligence Platform", "status": "running"}
 
