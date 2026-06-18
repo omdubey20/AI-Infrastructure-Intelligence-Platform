@@ -39,7 +39,7 @@ def get_duplicate_projects(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    projects = db.query(models.ProjectDiscovery).all()
+    projects = db.query(models.ProjectDiscovery).options(joinedload(models.ProjectDiscovery.server)).all()
     counts = {}
 
     for p in projects:
