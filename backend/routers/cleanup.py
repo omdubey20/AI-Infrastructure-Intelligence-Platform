@@ -76,3 +76,7 @@ def approve_cleanup(project_id: int, action: str, db: Session = Depends(get_db))
 
     db.commit()
     return {"success": True, "project_id": project_id, "action": action, "message": message}
+
+@router.get("/logs")
+def get_cleanup_logs(db: Session = Depends(get_db)):
+    return []
