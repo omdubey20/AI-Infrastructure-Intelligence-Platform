@@ -13,7 +13,8 @@ export default function Projects() {
     try {
       const endpointMap = { all: '/projects/', duplicates: '/projects/duplicates' }; const endpoint = endpointMap[f] || '/projects/';
       const res = await api.get(endpoint);
-      setProjects(Array.isArray(res.data) ? res.data : []);
+      const data = Array.isArray(res.data) ? res.data : [];
+      setProjects(data);
     } catch (err) {
       setProjects([]);
     } finally {
@@ -54,8 +55,8 @@ export default function Projects() {
         ))}
       </div>
 
-      {loading ? (
-        <div style={{ color: '#94a3b8', padding: '32px' }}>Loading projects...</div>
+      {projects.length === 0 && !loading ? (
+        <div style={{ color: '#94a3b8', padding: '32px' }}>No projects found. Run a scan from the Dashboard first.</div>
       ) : projects.length === 0 ? (
         <div style={{ background: '#1e293b', borderRadius: '12px', padding: '48px',
           border: '1px solid #334155', textAlign: 'center' }}>
@@ -64,7 +65,7 @@ export default function Projects() {
           </p>
         </div>
       ) : (
-        <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
+        <div className="card" style={{ overflow: 'hidden', padding: 0, background: '#1e293b' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#0f172a', borderBottom: '1px solid #334155' }}>

@@ -72,7 +72,7 @@ button, input, textarea, select {
 .card {
   background:
     linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
-    var(--bg-card);
+    #111c2e;
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 24px;
