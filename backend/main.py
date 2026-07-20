@@ -5,7 +5,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from database import Base, engine, get_db
 from models import Server
 from services.server_scanner import scan_server_projects
-from routers import stats, projects, servers, cleanup, discovery
+from routers import stats, projects, servers, cleanup, discovery, whm
 from routers.auth import router as auth_router
 import models
 import logging
@@ -69,6 +69,7 @@ app.include_router(projects.router)
 app.include_router(cleanup.router)
 app.include_router(stats.router)
 app.include_router(discovery.router)
+app.include_router(whm.router)
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
