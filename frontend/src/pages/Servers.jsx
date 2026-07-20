@@ -109,7 +109,60 @@ export default function Servers() {
                 <input style={inp} value={form.description} onChange={e => setForm({...form, description:e.target.value})} placeholder="Main application server" />
               </div>
               <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>ENVIRONMENT</label>
+                
+              <div style={{ marginBottom:"16px" }}>
+                <label style={lbl}>SSH USERNAME</label>
+                <input
+                  style={inp}
+                  value={form.ssh_username}
+                  onChange={e => setForm({ ...form, ssh_username: e.target.value })}
+                  placeholder="root"
+                />
+              </div>
+
+              <div style={{ marginBottom:"16px" }}>
+                <label style={lbl}>SSH PASSWORD</label>
+                <input
+                  style={inp}
+                  type="password"
+                  value={form.ssh_password}
+                  onChange={e => setForm({ ...form, ssh_password: e.target.value })}
+                  placeholder="SSH password"
+                />
+              </div>
+
+              <div style={{ marginBottom:"16px" }}>
+                <label style={lbl}>SSH PORT</label>
+                <input
+                  style={inp}
+                  value={form.ssh_port}
+                  onChange={e => setForm({ ...form, ssh_port: e.target.value })}
+                  placeholder="22"
+                />
+              </div>
+
+              <div style={{ marginBottom:"16px" }}>
+                <label style={lbl}>WHM HOST (optional)</label>
+                <input
+                  style={inp}
+                  value={form.whm_host}
+                  onChange={e => setForm({ ...form, whm_host: e.target.value })}
+                  placeholder="013237.vps-10.com"
+                />
+              </div>
+
+              <div style={{ marginBottom:"16px" }}>
+                <label style={lbl}>WHM API TOKEN (optional)</label>
+                <input
+                  style={inp}
+                  type="password"
+                  value={form.whm_token}
+                  onChange={e => setForm({ ...form, whm_token: e.target.value })}
+                  placeholder="Paste WHM API token"
+                />
+              </div>
+
+<label style={lbl}>ENVIRONMENT</label>
                 <select style={inp} value={form.environment} onChange={e => setForm({...form, environment:e.target.value})}>
                   <option value="production">Production</option>
                   <option value="staging">Staging</option>
