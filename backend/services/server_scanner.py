@@ -9,8 +9,10 @@ SCAN_PATHS = [
     "/var/www",
     "/var/www/html",
     "/home",
+    "/home/ubuntu",
     "/opt",
     "/srv",
+    "/usr/share/nginx/html",
 ]
 
 
@@ -40,24 +42,39 @@ def connect_ssh(server):
 
 def discover_projects_via_ssh(client):
     projects = []
+    seen_paths = set()
+
     for path in SCAN_PATHS:
         output = run_ssh_command(
             client,
-            f"find {path} -maxdepth 2 -type d 2>/dev/null | head -30"
+            f"find {path} -maxdepth 4 -type d 2>/dev/null | head -100"
         )
         if not output:
             continue
+
         for line in output.splitlines():
             line = line.strip()
             if not line or line in SCAN_PATHS:
                 continue
+
             project_name = line.split("/")[-1]
-            if project_name in ["html", "cgi-bin", "lost+found", ""]:
+
+            if project_name in [
+                "html", "cgi-bin", "lost+found", "", "node_modules",
+                ".git", "__pycache__", "venv", ".venv", "dist", "build"
+            ]:
                 continue
+
+            if line in seen_paths:
+                continue
+
+            seen_paths.add(line)
+
             projects.append({
                 "name": project_name,
                 "path": line
             })
+
     return projects
 
 
@@ -162,7 +179,7 @@ def scan_server_projects(db, server):
         server.cpu_usage = None
         server.memory_usage = None
         server.disk_usage = None
-        
+
     log_entry = ScanLog(
         server_id=server.id,
         cpu_usage=server.cpu_usage or 0,
