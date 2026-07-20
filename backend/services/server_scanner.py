@@ -170,13 +170,15 @@ def scan_server_projects(db, server):
         server.risk_score = calculate_server_risk(server)
         db.commit()
 
-        sample_projects = [
-            ("labhmitra", "/var/www/labhmitra"),
-            ("bbx", "/var/www/bbx"),
-            ("crm", "/var/www/crm"),
-            ("oldcrm", "/var/www/oldcrm"),
-            ("inventory", "/var/www/inventory"),
-        ]
+        from services.whm_service import get_whm_accounts, get_account_domains
+        whm_accounts = get_whm_accounts()
+        sample_projects = []
+        for acc in whm_accounts:
+            domains = get_account_domains(acc.get("user", ""))
+            for d in domains:
+                sample_projects.append((d.get("name", ""), d.get("path", "/home/business/public_html")))
+        if not sample_projects:
+            sample_projects = [("businessrevivalseries.uk", "/home/business/public_html")]
 
         for project_name, project_path in sample_projects:
             existing = (
