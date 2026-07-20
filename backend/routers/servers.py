@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
-from models import Server, ProjectDiscovery, ScanLog, Project
+from models import Server
 from schemas import ServerCreate, ServerOut
 from routers.auth import (
     get_current_user,
@@ -143,15 +143,23 @@ def update_server(
 # Admin Only
 # =========================
 
-@router.delete("/{server_id}")
+@router.delete(
+    "/{server_id}"
+)
 def delete_server(
     server_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(require_role(["admin"]))
+    current_user=Depends(
+        require_role(
+            ["admin"]
+        )
+    )
 ):
     server = (
         db.query(Server)
-        .filter(Server.id == server_id)
+        .filter(
+            Server.id == server_id
+        )
         .first()
     )
 
@@ -161,19 +169,9 @@ def delete_server(
             detail="Server not found"
         )
 
-    db.query(ProjectDiscovery).filter(
-        ProjectDiscovery.server_id == server_id
-    ).delete(synchronize_session=False)
-
-    db.query(Project).filter(
-        Project.server_id == server_id
-    ).delete(synchronize_session=False)
-
-    db.query(ScanLog).filter(
-        ScanLog.server_id == server_id
-    ).delete(synchronize_session=False)
-
     db.delete(server)
     db.commit()
 
-    return {"message": "Server deleted successfully"}
+    return {
+        "message": "Server deleted successfully"
+    }
