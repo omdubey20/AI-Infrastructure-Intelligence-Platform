@@ -121,7 +121,7 @@ export default function Servers() {
               </div>
 
               <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>SSH PASSWORD</label>
+                <label style={lbl}>SSH PASSWORD (optional)</label>
                 <input
                   style={inp}
                   type="password"
@@ -132,7 +132,7 @@ export default function Servers() {
               </div>
 
               <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>SSH PORT</label>
+                <label style={lbl}>SSH PORT (optional)</label>
                 <input
                   style={inp}
                   value={form.ssh_port}
@@ -142,7 +142,7 @@ export default function Servers() {
               </div>
 
               <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>WHM HOST (optional)</label>
+                <label style={lbl}>WHM HOST</label>
                 <input
                   style={inp}
                   value={form.whm_host}
@@ -152,7 +152,7 @@ export default function Servers() {
               </div>
 
               <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>WHM API TOKEN (optional)</label>
+                <label style={lbl}>WHM API TOKEN</label>
                 <input
                   style={inp}
                   type="password"
