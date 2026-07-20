@@ -1,7 +1,7 @@
 import paramiko
 import random
 from datetime import datetime
-from models import Server, ProjectDiscovery
+from models import Server, ProjectDiscovery, ScanLog
 from services.risk_engine import calculate_server_risk
 
 
@@ -152,54 +152,28 @@ def scan_server_projects(db, server):
                 size_mb=size_mb,
                 dns_points_here=dns_live,
                 web_config_active=web_active,
-                risk_score=random.randint(10, 90)
+                risk_score=calculate_server_risk(server)
             )
             db.add(discovery)
-            db.commit()
-
         client.close()
 
     else:
-        # SSH not reachable — use simulated data for demo
         server.status = "unreachable"
-        server.cpu_usage = random.randint(20, 95)
-        server.memory_usage = random.randint(30, 90)
-        server.disk_usage = random.randint(40, 95)
-        server.uptime_days = random.randint(1, 400)
-        server.error_count = random.randint(0, 50)
-        server.risk_score = calculate_server_risk(server)
-        db.commit()
-
-        sample_projects = [
-            ("labhmitra", "/var/www/labhmitra"),
-            ("bbx", "/var/www/bbx"),
-            ("crm", "/var/www/crm"),
-            ("oldcrm", "/var/www/oldcrm"),
-            ("inventory", "/var/www/inventory"),
-        ]
-
-        for project_name, project_path in sample_projects:
-            existing = (
-                db.query(ProjectDiscovery)
-                .filter(
-                    ProjectDiscovery.server_id == server.id,
-                    ProjectDiscovery.project_name == project_name
-                )
-                .first()
-            )
-            if existing:
-                continue
-
-            discovery = ProjectDiscovery(
-                server_id=server.id,
-                project_name=project_name,
-                project_path=project_path,
-                size_mb=random.randint(100, 5000),
-                dns_points_here=random.choice([True, False]),
-                web_config_active=random.choice([True, False]),
-                risk_score=random.randint(10, 90)
-            )
-            db.add(discovery)
+        server.cpu_usage = None
+        server.memory_usage = None
+        server.disk_usage = None
+        
+    log_entry = ScanLog(
+        server_id=server.id,
+        cpu_usage=server.cpu_usage or 0,
+        memory_usage=server.memory_usage or 0,
+        disk_usage=server.disk_usage or 0,
+        error_count=server.error_count or 0,
+        uptime_days=server.uptime_days or 0,
+        risk_score=server.risk_score or 0,
+        status=server.status
+    )
+    db.add(log_entry)
 
     db.commit()
     return {"ssh_connected": ssh_available}

@@ -217,3 +217,31 @@ class ProjectDiscovery(Base):
         "Server",
         back_populates="discoveries"
     )
+
+# ==================================================
+# SCAN LOGS (history for ML training)
+# ==================================================
+
+class ScanLog(Base):
+    __tablename__ = "scan_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    server_id = Column(
+        Integer,
+        ForeignKey("servers.id")
+    )
+
+    cpu_usage = Column(Integer, default=0)
+    memory_usage = Column(Integer, default=0)
+    disk_usage = Column(Integer, default=0)
+    error_count = Column(Integer, default=0)
+    uptime_days = Column(Integer, default=0)
+    risk_score = Column(Integer, default=0)
+
+    status = Column(String, default="active")
+
+    scanned_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
