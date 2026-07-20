@@ -11,7 +11,7 @@ from services.insights_engine import generate_server_insights
 router = APIRouter(prefix="/stats", tags=["Stats"])
 
 _cache = {"data": None, "ts": 0}
-CACHE_TTL = 300
+CACHE_TTL = 0
 
 @router.get("/dashboard")
 def dashboard_stats(db: Session = Depends(get_db)):
