@@ -57,12 +57,12 @@ class ServerUpdate(ServerBase):
 class ServerOut(ServerBase):
     id: int
     created_at: datetime
-    cpu_usage: int = 0
-    memory_usage: int = 0
-    disk_usage: int = 0
-    error_count: int = 0
-    uptime_days: int = 0
-    risk_score: int = 0
+    cpu_usage: Optional[int] = 0
+    memory_usage: Optional[int] = 0
+    disk_usage: Optional[int] = 0
+    error_count: Optional[int] = 0
+    uptime_days: Optional[int] = 0
+    risk_score: Optional[int] = 0
 
     class Config:
         from_attributes = True
