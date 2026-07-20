@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import api from "../api/axios";
 
-const initialForm = { name: "", ip_address: "", environment: "production", status: "active", description: "" };
+const initialForm = { name: "", ip_address: "", environment: "production", status: "active", description: "", ssh_username: "root", ssh_password: "", ssh_port: "22", whm_host: "", whm_token: "", whm_port: "2087" };
 
 export default function Servers() {
   const [servers, setServers] = useState([]);
@@ -30,7 +30,7 @@ export default function Servers() {
 
   const openEditForm = (s) => {
     setEditServer(s);
-    setForm({ name: s.name||"", ip_address: s.ip_address||"", environment: s.environment||"production", status: s.status||"active", description: s.description||"" });
+    setForm({ name: s.name||"", ip_address: s.ip_address||"", environment: s.environment||"production", status: s.status||"active", description: s.description||"", ssh_username: s.ssh_username||"root", ssh_password: "", ssh_port: s.ssh_port||"22", whm_host: s.whm_host||"", whm_token: "", whm_port: s.whm_port||"2087" });
     setError(""); setShowForm(true);
   };
 

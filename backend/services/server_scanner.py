@@ -170,13 +170,19 @@ def scan_server_projects(db, server):
         server.risk_score = calculate_server_risk(server)
         db.commit()
 
-        from services.whm_service import get_whm_accounts, get_account_domains
-        whm_accounts = get_whm_accounts()
+        from services.whm_service import get_whm_accounts_for_server, get_account_domains_with_creds
+        import os
+        whm_host = getattr(server, "whm_host", None) or os.getenv("WHM_HOST")
+        whm_token = getattr(server, "whm_token", None) or os.getenv("WHM_TOKEN")
+        whm_port = getattr(server, "whm_port", None) or os.getenv("WHM_PORT", "2087")
         sample_projects = []
-        for acc in whm_accounts:
-            domains = get_account_domains(acc.get("user", ""))
-            for d in domains:
-                sample_projects.append((d.get("name", ""), d.get("path", "/home/business/public_html")))
+        if whm_host and whm_token:
+            accts = get_whm_accounts_for_server(whm_host, whm_token, whm_port)
+            for acc in accts:
+                domains = get_account_domains_with_creds(whm_host, whm_token, whm_port, acc.get("user", ""))
+                for d in domains:
+                    if d.get("name"):
+                        sample_projects.append((d.get("name"), d.get("path", "/home/business/public_html")))
         if not sample_projects:
             sample_projects = [("businessrevivalseries.uk", "/home/business/public_html")]
 

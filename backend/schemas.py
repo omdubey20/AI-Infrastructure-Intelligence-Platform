@@ -44,6 +44,12 @@ class ServerBase(BaseModel):
     environment: str = "production"
     status: str = "active"
     description: Optional[str] = None
+    ssh_username: Optional[str] = None
+    ssh_password: Optional[str] = None
+    ssh_port: int = 22
+    whm_host: Optional[str] = None
+    whm_token: Optional[str] = None
+    whm_port: int = 2087
 
 
 class ServerCreate(ServerBase):
@@ -63,6 +69,10 @@ class ServerOut(ServerBase):
     error_count: int = 0
     uptime_days: int = 0
     risk_score: int = 0
+    ssh_username: Optional[str] = None
+    ssh_port: int = 22
+    whm_host: Optional[str] = None
+    whm_port: int = 2087
 
     class Config:
         from_attributes = True
@@ -91,6 +101,10 @@ class ProjectOut(ProjectBase):
     id: int
     created_at: datetime
     risk_score: int = 0
+    ssh_username: Optional[str] = None
+    ssh_port: int = 22
+    whm_host: Optional[str] = None
+    whm_port: int = 2087
 
     class Config:
         from_attributes = True

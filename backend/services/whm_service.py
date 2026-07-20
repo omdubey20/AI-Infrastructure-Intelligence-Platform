@@ -101,3 +101,32 @@ def get_full_server_report():
             "domains": domains,
         })
     return result
+
+
+def get_whm_accounts_for_server(host, token, port=2087):
+    try:
+        url = f"https://{host}:{port}/json-api/listaccts?api.version=1"
+        headers = {"Authorization": f"whm root:{token}"}
+        r = requests.get(url, headers=headers, verify=False, timeout=10)
+        return r.json().get("data", {}).get("acct", [])
+    except Exception:
+        return []
+
+def get_account_domains_with_creds(host, token, port, username):
+    try:
+        url = (f"https://{host}:{port}/json-api/cpanel?cpanel_jsonapi_user={username}"
+               f"&cpanel_jsonapi_module=DomainInfo&cpanel_jsonapi_func=domains_data&cpanel_jsonapi_apiversion=3")
+        headers = {"Authorization": f"whm root:{token}"}
+        r = requests.get(url, headers=headers, verify=False, timeout=10)
+        data = r.json().get("result", {}).get("data", {})
+        domains = []
+        main = data.get("main_domain", {})
+        if main:
+            domains.append({"name": main.get("domain"), "path": main.get("documentroot"), "type": "main"})
+        for sub in data.get("sub_domains", []):
+            domains.append({"name": sub.get("domain"), "path": sub.get("documentroot"), "type": "subdomain"})
+        for addon in data.get("addon_domains", []):
+            domains.append({"name": addon.get("domain"), "path": addon.get("documentroot"), "type": "addon"})
+        return domains
+    except Exception:
+        return []
