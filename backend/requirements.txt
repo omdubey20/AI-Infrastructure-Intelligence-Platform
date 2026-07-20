@@ -33,3 +33,4 @@ uvicorn==0.48.0
 email-validator==2.1.0
 python-multipart==0.0.9
 # force redeploy
+requests==2.32.3
