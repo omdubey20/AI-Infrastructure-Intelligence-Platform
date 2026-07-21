@@ -37,7 +37,11 @@ export default function Dashboard() {
   const fetchStats = () =>
     api.get("/stats/dashboard").then(r => setStats(r.data)).catch(console.error);
 
-  useEffect(() => { fetchStats(); }, []);
+  useEffect(() => {
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleScan = async () => {
     setScanning(true); setScanResult(null);
