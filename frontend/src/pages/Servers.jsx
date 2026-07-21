@@ -93,7 +93,7 @@ export default function Servers() {
 
       {showForm && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
-          <div style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:"16px", padding:"32px", width:"100%", maxWidth:"480px" }}>
+          <div style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:"16px", padding:"32px", width:"100%", maxWidth:"480px", maxHeight:"85vh", overflowY:"auto" }}>
             <h2 style={{ color:"#f1f5f9", fontSize:"18px", fontWeight:800, marginBottom:"24px" }}>{editServer ? "Edit Server" : "Add Server"}</h2>
             <form onSubmit={handleSubmit}>
               <div style={{ marginBottom:"16px" }}>
