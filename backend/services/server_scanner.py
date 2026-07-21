@@ -152,7 +152,7 @@ def scan_server_projects(db, server):
                 size_mb=size_mb,
                 dns_points_here=dns_live,
                 web_config_active=web_active,
-                risk_score=random.randint(10, 90)
+                risk_score=20 if dns_points_here else 60
             )
             db.add(discovery)
             db.commit()
@@ -228,9 +228,9 @@ def scan_server_projects(db, server):
                 project_name=project_name,
                 project_path=project_path,
                 size_mb=random.randint(100, 5000),
-                dns_points_here=random.choice([True, False]),
-                web_config_active=random.choice([True, False]),
-                risk_score=random.randint(10, 90)
+                dns_points_here=False,
+                web_config_active=False,
+                risk_score=20 if dns_points_here else 60
             )
             db.add(discovery)
 
