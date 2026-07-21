@@ -34,3 +34,5 @@ email-validator==2.1.0
 python-multipart==0.0.9
 # force redeploy
 requests==2.32.3
+scikit-learn==1.4.2
+numpy==1.26.4
