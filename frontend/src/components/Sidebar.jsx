@@ -1,36 +1,14 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 
-const DashboardIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-    e x1="5" y1="20" x2="5" y2="13" />e x1="12" y1="20" x2="12" y2="6" />e x1="19" y1="20" x2="19" y2="16" />
-  </svg>
-);
-const ServersIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="18" height="7" rx="1.5" /><rect x="3" y="14" width="18" height="7" rx="1.5" />
-    ircle cx="7" cy="6.5" r="0.8" fill="currentColor" stroke="none" />ircle cx="7" cy="17.5" r="0.8" fill="currentColor" stroke="none" />
-  </svg>
-);
-const ProjectsIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-  </svg>
-);
-const CleanupIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
-  </svg>
-);
-
 const navItems = [
-  { path: "/dashboard", label: "Dashboard", icon: <DashboardIcon /> },
-  { path: "/servers", label: "Servers", icon: <ServersIcon /> },
-  { path: "/projects", label: "Projects", icon: <ProjectsIcon /> },
-  { path: "/cleanup", label: "Cleanup", icon: <CleanupIcon /> },
+  { path: "/dashboard", label: "Dashboard", icon: "📊" },
+  { path: "/servers", label: "Servers", icon: "🖥️" },
+  { path: "/projects", label: "Projects", icon: "��" },
+  { path: "/cleanup", label: "Cleanup", icon: "🧹" },
 ];
 
-function SidebarContent({ onClose }) {
+function NavContent({ onClose }) {
   const navigate = useNavigate();
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -50,7 +28,7 @@ function SidebarContent({ onClose }) {
             </div>
           </div>
           {onClose && (
-            <button onClick={onClose} style={{ background:"none", border:"none", color:"#64748b", cursor:"pointer", fontSize:"20px", padding:"4px" }}>✕</button>
+            <button onClick={onClose} style={{ background:"none", border:"none", color:"#94a3b8", cursor:"pointer", fontSize:"18px", lineHeight:1 }}>✕</button>
           )}
         </div>
       </div>
@@ -65,8 +43,10 @@ function SidebarContent({ onClose }) {
             background: isActive ? "rgba(56,189,248,0.08)" : "transparent",
             borderLeft: isActive ? "2px solid #38bdf8" : "2px solid transparent",
             fontWeight: isActive ? 600 : 400, fontSize:"14px",
+            transition:"all 0.15s",
           })}>
-            <span>{icon}</span><span>{label}</span>
+            <span style={{ fontSize:"16px" }}>{icon}</span>
+            <span>{label}</span>
           </NavLink>
         ))}
       </nav>
@@ -82,51 +62,44 @@ function SidebarContent({ onClose }) {
 }
 
 export default function Sidebar() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+      if (window.innerWidth > 768) setDrawerOpen(false);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  if (!isMobile) {
+    return (
+      <aside style={{ width:"240px", minHeight:"100vh", flexShrink:0, display:"flex", flexDirection:"column", borderRight:"1px solid #1e293b" }}>
+        <NavContent />
+      </aside>
+    );
+  }
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside style={{ width:"240px", minHeight:"100vh", flexShrink:0, display:"flex", flexDirection:"column", borderRight:"1px solid #1e293b" }}
-        className="desktop-sidebar">
-        <SidebarContent />
-      </aside>
-
-      {/* Mobile Top Bar */}
-      <div style={{ display:"none" }} className="mobile-topbar">
-        <div style={{ position:"fixed", top:0, left:0, right:0, height:"56px", background:"#0f172a", borderBottom:"1px solid #1e293b", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 16px", zIndex:100 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
-            <div style={{ width:"28px", height:"28px", borderRadius:"6px", background:"linear-gradient(135deg,#0EA5E9,#2DD4BF)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"14px", fontWeight:800, color:"white" }}>A</div>
-            <div style={{ fontSize:"14px", fontWeight:800, color:"#f1f5f9" }}>Infra Intel</div>
-          </div>
-          <button onClick={() => setMobileOpen(true)} style={{ background:"none", border:"none", color:"#94a3b8", cursor:"pointer", padding:"8px" }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              e x1="3" y1="6" x2="21" y2="6"/>e x1="3" y1="12" x2="21" y2="12"/>e x1="3" y1="18" x2="21" y2="18"/>
-            </svg>
-          </button>
+      <div style={{ position:"fixed", top:0, left:0, right:0, height:"56px", background:"#0f172a", borderBottom:"1px solid #1e293b", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 16px", zIndex:100 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
+          <div style={{ width:"28px", height:"28px", borderRadius:"6px", background:"linear-gradient(135deg,#0EA5E9,#2DD4BF)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"14px", fontWeight:800, color:"white" }}>A</div>
+          <div style={{ fontSize:"14px", fontWeight:800, color:"#f1f5f9" }}>Infra Intel</div>
         </div>
+        <button onClick={() => setDrawerOpen(true)} style={{ background:"none", border:"none", color:"#94a3b8", cursor:"pointer", padding:"8px", fontSize:"22px", lineHeight:1 }}>☰</button>
       </div>
 
-      {/* Mobile Drawer Overlay */}
-      {mobileOpen && (
+      {drawerOpen && (
         <div style={{ position:"fixed", inset:0, zIndex:200 }}>
-          <div onClick={() => setMobileOpen(false)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.6)" }} />
-          <div style={{ position:"absolute", left:0, top:0, bottom:0, width:"260px", background:"#0f172a", display:"flex", flexDirection:"column" }}>
-            <SidebarContent onClose={() => setMobileOpen(false)} />
+          <div onClick={() => setDrawerOpen(false)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.6)" }} />
+          <div style={{ position:"absolute", left:0, top:0, bottom:0, width:"260px" }}>
+            <NavContent onClose={() => setDrawerOpen(false)} />
           </div>
         </div>
       )}
-
-      <style>{`
-        @media (max-width: 768px) {
-          .desktop-sidebar { display: none !important; }
-          .mobile-topbar { display: block !important; }
-        }
-        @media (min-width: 769px) {
-          .mobile-topbar { display: none !important; }
-          .desktop-sidebar { display: flex !important; }
-        }
-      `}</style>
     </>
   );
 }

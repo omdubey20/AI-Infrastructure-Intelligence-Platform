@@ -13,10 +13,11 @@ function PrivateRoute({ children }) {
 }
 
 function Layout({ children }) {
+  const isMobile = window.innerWidth <= 768;
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#0f172a" }}>
       <Sidebar />
-      <main style={{ flex: 1, overflowY: "auto", background: "#0f172a", paddingTop: "0" }} className="main-content">
+      <main style={{ flex: 1, overflowY: "auto", background: "#0f172a", paddingTop: window.innerWidth <= 768 ? "56px" : "0" }}>
         {children}
       </main>
     </div>
