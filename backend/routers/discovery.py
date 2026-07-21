@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends
 from routers import stats as stats_module
 from sqlalchemy.orm import Session
 from database import get_db, SessionLocal
