@@ -235,3 +235,18 @@ button, input, textarea, select {
     border-radius: 14px;
   }
 }
+@media (max-width: 768px) {
+  .main-content {
+    padding-top: 56px;
+  }
+  .card {
+    border-radius: 12px;
+    padding: 16px;
+  }
+  table {
+    font-size: 12px;
+  }
+  div[style*="padding:"32px""] {
+    padding: 16px;
+  }
+}
