@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 import api from "../api/axios";
 
 const DataContext = createContext(null);
@@ -33,6 +33,13 @@ export function DataProvider({ children }) {
   };
 
   const refresh = () => { setLoaded(false); };
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLoaded(false);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <DataContext.Provider value={{ stats, servers, projects, duplicates, cleanup, loaded, preloadAll, refresh }}>
