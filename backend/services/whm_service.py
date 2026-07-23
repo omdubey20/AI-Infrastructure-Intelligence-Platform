@@ -123,8 +123,7 @@ def get_account_domains_with_creds(host, token, port, username):
         main = data.get("main_domain", {})
         if main:
             domains.append({"name": main.get("domain"), "path": main.get("documentroot"), "type": "main"})
-        for sub in data.get("sub_domains", []):
-            domains.append({"name": sub.get("domain"), "path": sub.get("documentroot"), "type": "subdomain"})
+        # Skip subdomains - they are parts of main domains, not separate projects
         for addon in data.get("addon_domains", []):
             domains.append({"name": addon.get("domain"), "path": addon.get("documentroot"), "type": "addon"})
         return domains

@@ -208,6 +208,11 @@ def scan_server_projects(db, server):
                 for d in domains:
                     if d.get("name"):
                         sample_projects.append((d.get("name"), d.get("path", "/home/business/public_html")))
+        # Filter out system subdomains
+        SKIP_PREFIXES = ('mail.', 'cpanel.', 'webmail.', 'webdisk.', 'cpcalendars.', 'cpcontacts.', 'autodiscover.', 'ftp.')
+        sample_projects = [(name, path) for name, path in sample_projects 
+                          if not any(name.startswith(p) for p in SKIP_PREFIXES)]
+        
         if not sample_projects:
             sample_projects = [("businessrevivalseries.uk", "/home/business/public_html")]
 
@@ -215,7 +220,6 @@ def scan_server_projects(db, server):
             existing = (
                 db.query(ProjectDiscovery)
                 .filter(
-                    ProjectDiscovery.server_id == server.id,
                     ProjectDiscovery.project_name == project_name
                 )
                 .first()
