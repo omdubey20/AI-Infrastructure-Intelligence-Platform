@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: "📊" },
@@ -9,7 +9,6 @@ const navItems = [
 ];
 
 function NavContent({ onClose }) {
-  const navigate = useNavigate();
   const handleLogout = () => {
     localStorage.removeItem("token");
     window.location.href = "/login";

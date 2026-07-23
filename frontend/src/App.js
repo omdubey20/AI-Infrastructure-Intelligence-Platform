@@ -18,6 +18,7 @@ function Layout({ children }) {
 
   useEffect(() => {
     if (!loaded) preloadAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
 
   const isMobile = window.innerWidth <= 768;
