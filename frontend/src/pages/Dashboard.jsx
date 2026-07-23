@@ -115,7 +115,7 @@ export default function Dashboard() {
         )}
 
         {/* Stat Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+        <div style={{ display: "grid", gridTemplateColumns: window.innerWidth <= 768 ? "repeat(2, 1fr)" : "repeat(auto-fit, minmax(140px, 1fr))",
           gap: "14px", marginBottom: "28px" }}>
           <div onClick={() => window.location.href="/servers"} style={{cursor:"pointer"}}><StatCard title="Total Servers" value={stats.total_servers} icon="🖥️" color="blue" /></div>
           <div onClick={() => window.location.href="/projects"} style={{cursor:"pointer"}}><StatCard title="Projects" value={stats.total_projects} icon="📁" color="teal" /></div>
@@ -126,7 +126,7 @@ export default function Dashboard() {
 
         {/* Charts Row */}
         {stats.top_risk_servers.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr",
+          <div style={{ display: "grid", gridTemplateColumns: window.innerWidth <= 768 ? "1fr" : "2fr 1fr",
             gap: "16px", marginBottom: "24px" }}>
 
             <div className="card">

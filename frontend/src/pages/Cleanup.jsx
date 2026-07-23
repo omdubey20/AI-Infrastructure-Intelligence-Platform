@@ -19,7 +19,7 @@ export default function Cleanup() {
   };
 
   return (
-    <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh" }}>
+    <div style={{ padding: window.innerWidth <= 768 ? "16px" : "32px", background: "#080e1a", minHeight: "100vh" }}>
       <div style={{ marginBottom: "28px" }}>
         <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 700, letterSpacing: "0.12em", marginBottom: "6px" }}>INFRASTRUCTURE</p>
         <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Cleanup</h1>
@@ -27,7 +27,7 @@ export default function Cleanup() {
       </div>
 
       {report && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "16px", marginBottom: "32px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: window.innerWidth <= 768 ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: "16px", marginBottom: "32px" }}>
           {[
             ["Total Projects", report.totalprojects, "#3b82f6"],
             ["Delete Candidates", report.deletecandidates, "#ef4444"],
@@ -50,7 +50,7 @@ export default function Cleanup() {
           <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>No projects requiring action</div>
         )}
         {report?.projects?.map(p => (
-          <div key={p.projectid} style={{ padding: "16px 24px", borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div key={p.projectid} style={{ padding: "16px", borderBottom: "1px solid #334155", display: "flex", flexDirection: window.innerWidth <= 768 ? "column" : "row", justifyContent: "space-between", alignItems: window.innerWidth <= 768 ? "flex-start" : "center", gap: "12px" }}>
             <div>
               <p style={{ color: "#f1f5f9", fontWeight: 600, marginBottom: "4px" }}>{p.projectname}</p>
               <p style={{ color: "#94a3b8", fontSize: "12px" }}>{p.servername} • {p.reason}</p>
