@@ -169,6 +169,8 @@ def delete_server(
             detail="Server not found"
         )
 
+    from models import ProjectDiscovery
+    db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server_id).delete()
     db.delete(server)
     db.commit()
 
