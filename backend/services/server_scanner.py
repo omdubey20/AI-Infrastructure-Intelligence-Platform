@@ -227,14 +227,16 @@ def scan_server_projects(db, server):
             if existing:
                 continue
 
+            from services.dns_checker import check_project_health
+            dns_live, web_active, proj_risk = check_project_health(project_name, project_path)
             discovery = ProjectDiscovery(
                 server_id=server.id,
                 project_name=project_name,
                 project_path=project_path,
-                size_mb=random.randint(100, 5000),
-                dns_points_here=False,
-                web_config_active=False,
-                risk_score=20
+                size_mb=0,
+                dns_points_here=dns_live,
+                web_config_active=web_active,
+                risk_score=proj_risk
             )
             db.add(discovery)
 

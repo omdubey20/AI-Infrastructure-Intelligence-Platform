@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import api from "../api/axios";
+import { useData } from "../context/DataContext";
 
 const initialForm = { name: "", ip_address: "", environment: "production", status: "active", description: "", ssh_username: "root", ssh_password: "", ssh_port: "22", whm_host: "", whm_token: "", whm_port: "2087" };
 
@@ -24,7 +25,15 @@ export default function Servers() {
     }
   };
 
-  useEffect(() => { fetchServers(); }, []);
+  const { servers: preloaded, loaded } = useData();
+  useEffect(() => {
+    if (loaded && preloaded && preloaded.length > 0) {
+      setServers(preloaded);
+      setFetching(false);
+    } else {
+      fetchServers();
+    }
+  }, [loaded, preloaded]);
 
   const openAddForm = () => { setEditServer(null); setForm(initialForm); setError(""); setShowForm(true); };
 

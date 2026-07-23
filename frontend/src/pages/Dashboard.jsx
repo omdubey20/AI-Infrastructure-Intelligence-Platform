@@ -117,11 +117,11 @@ export default function Dashboard() {
         {/* Stat Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
           gap: "14px", marginBottom: "28px" }}>
-          <StatCard title="Total Servers" value={stats.total_servers}    icon="🖥️" color="blue"  />
-          <StatCard title="Projects"      value={stats.total_projects}   icon="📁" color="teal"  />
-          <StatCard title="Healthy"       value={stats.healthy_servers}  icon="✅" color="green" />
-          <StatCard title="Warning"       value={stats.warning_servers}  icon="⚠️" color="amber" />
-          <StatCard title="Critical"      value={stats.critical_servers} icon="🔴" color="red"   />
+          <div onClick={() => window.location.href="/servers"} style={{cursor:"pointer"}}><StatCard title="Total Servers" value={stats.total_servers} icon="🖥️" color="blue" /></div>
+          <div onClick={() => window.location.href="/projects"} style={{cursor:"pointer"}}><StatCard title="Projects" value={stats.total_projects} icon="📁" color="teal" /></div>
+          <div onClick={() => window.location.href="/servers"} style={{cursor:"pointer"}}><StatCard title="Healthy" value={stats.healthy_servers} icon="✅" color="green" /></div>
+          <div onClick={() => window.location.href="/servers"} style={{cursor:"pointer"}}><StatCard title="Warning" value={stats.warning_servers} icon="⚠️" color="amber" /></div>
+          <div onClick={() => window.location.href="/servers"} style={{cursor:"pointer"}}><StatCard title="Critical" value={stats.critical_servers} icon="🔴" color="red" /></div>
         </div>
 
         {/* Charts Row */}

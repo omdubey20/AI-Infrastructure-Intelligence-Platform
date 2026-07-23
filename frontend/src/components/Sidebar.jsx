@@ -12,7 +12,7 @@ function NavContent({ onClose }) {
   const navigate = useNavigate();
   const handleLogout = () => {
     localStorage.removeItem("token");
-    navigate("/login");
+    window.location.href = "/login";
     if (onClose) onClose();
   };
 
