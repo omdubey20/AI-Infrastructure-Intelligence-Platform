@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from "react";
 import api from "../api/axios";
+import { useAuth } from "../context/AuthContext";
 import { useData } from "../context/DataContext";
 
 const initialForm = { name: "", ip_address: "", environment: "production", status: "active", description: "", ssh_username: "root", ssh_password: "", ssh_port: "22", whm_host: "", whm_token: "", whm_port: "2087" };
 
 export default function Servers() {
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
   const [servers, setServers] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editServer, setEditServer] = useState(null);
@@ -72,7 +75,7 @@ export default function Servers() {
           <h1 style={{ fontSize:"24px", fontWeight:800, color:"#f1f5f9" }}>Servers</h1>
           <p style={{ fontSize:"13px", color:"#94a3b8", marginTop:"4px" }}>{servers.length} server(s) registered</p>
         </div>
-        <button onClick={openAddForm} className="btn-primary">+ Add Server</button>
+        {isAdmin && <button onClick={openAddForm} className="btn-primary">+ Add Server</button>
       </div>
 
       {error && <div style={{ background:"rgba(248,113,113,0.08)", border:"1px solid rgba(248,113,113,0.25)", borderRadius:"8px", padding:"12px 16px", marginBottom:"20px", color:"#f87171", fontSize:"13px" }}>{error}</div>}
@@ -92,8 +95,8 @@ export default function Servers() {
                 {server.description && <div style={{ fontSize:"12px", color:"#475569", marginTop:"4px" }}>{server.description}</div>}
               </div>
               <div style={{ display:"flex", gap:"8px" }}>
-                <button onClick={() => openEditForm(server)} style={{ background:"#334155", color:"#e2e8f0", border:"none", padding:"8px 16px", borderRadius:"8px", fontSize:"13px", cursor:"pointer" }}>Edit</button>
-                <button onClick={() => handleDelete(server.id)} style={{ background:"rgba(248,113,113,0.1)", color:"#f87171", border:"1px solid rgba(248,113,113,0.3)", padding:"8px 16px", borderRadius:"8px", fontSize:"13px", cursor:"pointer" }}>Delete</button>
+                {isAdmin && <button onClick={() => openEditForm(server)} style={{ background:"#334155", color:"#e2e8f0", border:"none", padding:"8px 16px", borderRadius:"8px", fontSize:"13px", cursor:"pointer" }}>Edit</button>}
+                {isAdmin && <button onClick={() => handleDelete(server.id)} style={{ background:"rgba(248,113,113,0.1)", color:"#f87171", border:"1px solid rgba(248,113,113,0.3)", padding:"8px 16px", borderRadius:"8px", fontSize:"13px", cursor:"pointer" }}>Delete</button>}
               </div>
             </div>
           ))}
