@@ -25,7 +25,7 @@ python-jose==3.5.0
 rsa==4.9.1
 six==1.17.0
 SQLAlchemy==2.0.50
-starlette==1.2.1
+starlette==0.47.3
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzlocal==5.3.1
@@ -34,5 +34,9 @@ email-validator==2.1.0
 python-multipart==0.0.9
 # force redeploy
 requests==2.32.3
-scikit-learn==1.4.2
-numpy==1.26.4
+scikit-learn==1.7.0
+numpy==2.3.0
+pandas==2.2.2
+joblib==1.4.2
+matplotlib==3.9.2
+xgboost==2.1.1

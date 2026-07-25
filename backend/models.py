@@ -14,10 +14,6 @@ from sqlalchemy.orm import relationship
 from database import Base
 
 
-# ==================================================
-# USERS
-# ==================================================
-
 class User(Base):
     __tablename__ = "users"
 
@@ -51,10 +47,6 @@ class User(Base):
         default="viewer"
     )
 
-
-# ==================================================
-# SERVERS
-# ==================================================
 
 class Server(Base):
     __tablename__ = "servers"
@@ -100,12 +92,17 @@ class Server(Base):
     error_count = Column(Integer, default=0)
     uptime_days = Column(Integer, default=0)
     risk_score = Column(Integer, default=0)
+
     ssh_username = Column(String, nullable=True)
     ssh_password = Column(String, nullable=True)
     ssh_port = Column(Integer, default=22)
+
     whm_host = Column(String, nullable=True)
     whm_token = Column(String, nullable=True)
     whm_port = Column(Integer, default=2087)
+
+    data_source = Column(String, default="estimated")
+    last_scanned_at = Column(DateTime, nullable=True)
 
     projects = relationship(
         "Project",
@@ -117,10 +114,6 @@ class Server(Base):
         back_populates="server"
     )
 
-
-# ==================================================
-# PROJECTS
-# ==================================================
 
 class Project(Base):
     __tablename__ = "projects"
@@ -165,10 +158,6 @@ class Project(Base):
     )
 
 
-# ==================================================
-# PROJECT DISCOVERIES
-# ==================================================
-
 class ProjectDiscovery(Base):
     __tablename__ = "project_discoveries"
 
@@ -212,6 +201,11 @@ class ProjectDiscovery(Base):
     risk_score = Column(
         Integer,
         default=0
+    )
+
+    data_source = Column(
+        String,
+        default="estimated"
     )
 
     created_at = Column(

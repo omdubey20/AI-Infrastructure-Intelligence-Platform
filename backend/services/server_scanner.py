@@ -1,7 +1,7 @@
+import os
 import paramiko
-import random
 from datetime import datetime
-from models import Server, ProjectDiscovery
+from models import ProjectDiscovery
 from services.risk_engine import calculate_server_risk
 
 
@@ -13,10 +13,22 @@ SCAN_PATHS = [
     "/srv",
 ]
 
+SKIP_PROJECT_NAMES = {"html", "cgi-bin", "lost+found", ""}
+SKIP_PREFIXES = (
+    "mail.",
+    "cpanel.",
+    "webmail.",
+    "webdisk.",
+    "cpcalendars.",
+    "cpcontacts.",
+    "autodiscover.",
+    "ftp."
+)
+
 
 def run_ssh_command(client, command):
     try:
-        _, stdout, stderr = client.exec_command(command, timeout=10)
+        _, stdout, _ = client.exec_command(command, timeout=10)
         return stdout.read().decode("utf-8").strip()
     except Exception:
         return ""
@@ -28,18 +40,19 @@ def connect_ssh(server):
     try:
         client.connect(
             hostname=server.ip_address,
-            port=22,
+            port=getattr(server, "ssh_port", 22) or 22,
             username=getattr(server, "ssh_username", "root"),
             password=getattr(server, "ssh_password", None),
             timeout=10
         )
         return client
-    except Exception as e:
+    except Exception:
         return None
 
 
 def discover_projects_via_ssh(client):
     projects = []
+
     for path in SCAN_PATHS:
         output = run_ssh_command(
             client,
@@ -47,17 +60,21 @@ def discover_projects_via_ssh(client):
         )
         if not output:
             continue
+
         for line in output.splitlines():
             line = line.strip()
             if not line or line in SCAN_PATHS:
                 continue
-            project_name = line.split("/")[-1]
-            if project_name in ["html", "cgi-bin", "lost+found", ""]:
+
+            project_name = line.split("/")[-1].strip()
+            if project_name in SKIP_PROJECT_NAMES:
                 continue
+
             projects.append({
                 "name": project_name,
                 "path": line
             })
+
     return projects
 
 
@@ -103,13 +120,56 @@ def check_web_config(client, project_path):
     return bool(nginx or apache)
 
 
+def upsert_discovery(
+    db,
+    server_id,
+    project_name,
+    project_path,
+    size_mb,
+    dns_points_here,
+    web_config_active,
+    risk_score,
+    data_source
+):
+    existing = (
+        db.query(ProjectDiscovery)
+        .filter(
+            ProjectDiscovery.server_id == server_id,
+            ProjectDiscovery.project_name == project_name
+        )
+        .first()
+    )
+
+    if existing:
+        existing.project_path = project_path
+        existing.size_mb = size_mb
+        existing.dns_points_here = dns_points_here
+        existing.web_config_active = web_config_active
+        existing.risk_score = risk_score
+        existing.data_source = data_source
+        return existing
+
+    discovery = ProjectDiscovery(
+        server_id=server_id,
+        project_name=project_name,
+        project_path=project_path,
+        size_mb=size_mb,
+        dns_points_here=dns_points_here,
+        web_config_active=web_config_active,
+        risk_score=risk_score,
+        data_source=data_source
+    )
+    db.add(discovery)
+    return discovery
+
+
 def scan_server_projects(db, server):
     client = connect_ssh(server)
     ssh_available = client is not None
 
     if ssh_available:
-        # Real SSH scan
         metrics = get_server_metrics(client)
+
         server.cpu_usage = metrics["cpu_usage"]
         server.memory_usage = metrics["memory_usage"]
         server.disk_usage = metrics["disk_usage"]
@@ -117,22 +177,13 @@ def scan_server_projects(db, server):
         server.error_count = metrics["error_count"]
         server.risk_score = calculate_server_risk(server)
         server.status = "active"
+        server.data_source = "ssh"
+        server.last_scanned_at = datetime.utcnow()
         db.commit()
 
         raw_projects = discover_projects_via_ssh(client)
 
         for proj in raw_projects:
-            existing = (
-                db.query(ProjectDiscovery)
-                .filter(
-                    ProjectDiscovery.server_id == server.id,
-                    ProjectDiscovery.project_name == proj["name"]
-                )
-                .first()
-            )
-            if existing:
-                continue
-
             dns_live = check_dns(client, proj["name"])
             web_active = check_web_config(client, proj["path"])
 
@@ -140,105 +191,114 @@ def scan_server_projects(db, server):
                 client,
                 f"du -sm {proj['path']} 2>/dev/null | awk '{{print $1}}'"
             )
+
             try:
                 size_mb = int(size_raw)
             except Exception:
                 size_mb = 0
 
-            discovery = ProjectDiscovery(
+            upsert_discovery(
+                db=db,
                 server_id=server.id,
                 project_name=proj["name"],
                 project_path=proj["path"],
                 size_mb=size_mb,
                 dns_points_here=dns_live,
                 web_config_active=web_active,
-                risk_score=20
+                risk_score=20,
+                data_source="ssh"
             )
-            db.add(discovery)
-            db.commit()
 
+        db.commit()
         client.close()
 
     else:
-        # SSH not reachable — use simulated data for demo
-        server.status = "active"  # WHM connected
-        # Get real disk from WHM if available
-        import os
-        whm_host = getattr(server, 'whm_host', None) or os.getenv('WHM_HOST')
-        whm_token = getattr(server, 'whm_token', None) or os.getenv('WHM_TOKEN')
-        whm_port = getattr(server, 'whm_port', 2087) or 2087
-        
+        server.status = "active"
+        server.data_source = "whm_estimated"
+        server.last_scanned_at = datetime.utcnow()
+
+        whm_host = getattr(server, "whm_host", None) or os.getenv("WHM_HOST")
+        whm_token = getattr(server, "whm_token", None) or os.getenv("WHM_TOKEN")
+        whm_port = getattr(server, "whm_port", 2087) or 2087
+
         real_disk = server.disk_usage or 0
+
         if whm_host and whm_token:
             try:
                 from services.whm_service import get_whm_accounts_for_server
                 accts = get_whm_accounts_for_server(whm_host, whm_token, whm_port)
+
                 if accts:
-                    disk_str = accts[0].get('diskused', '0M').replace('M','').replace('G','000')
-                    disk_limit_str = accts[0].get('disklimit', 'unlimited')
-                    if disk_limit_str != 'unlimited':
+                    disk_str = accts[0].get("diskused", "0M").replace("M", "").replace("G", "000")
+                    disk_limit_str = accts[0].get("disklimit", "unlimited")
+
+                    if disk_limit_str != "unlimited":
                         used = float(disk_str)
-                        limit = float(disk_limit_str.replace('M','').replace('G','000'))
+                        limit = float(disk_limit_str.replace("M", "").replace("G", "000"))
                         real_disk = int((used / limit) * 100) if limit > 0 else 50
                     else:
-                        real_disk = 30  # unlimited quota, estimate low
+                        real_disk = 30
             except Exception:
                 real_disk = server.disk_usage or 40
-        
-        # Estimate CPU and memory based on disk (consistent, not random)
+
         disk_factor = real_disk / 100.0
         server.cpu_usage = int(15 + disk_factor * 45)
         server.memory_usage = int(20 + disk_factor * 40)
         server.disk_usage = real_disk
-        server.uptime_days = server.uptime_days or 90
-        server.error_count = server.error_count or 0
+        server.uptime_days = server.uptime_days or 0
+        server.error_count = 0
         server.risk_score = calculate_server_risk(server)
         db.commit()
 
-        from services.whm_service import get_whm_accounts_for_server, get_account_domains_with_creds
-        import os
-        whm_host = getattr(server, "whm_host", None) or os.getenv("WHM_HOST")
-        whm_token = getattr(server, "whm_token", None) or os.getenv("WHM_TOKEN")
-        whm_port = getattr(server, "whm_port", None) or os.getenv("WHM_PORT", "2087")
         sample_projects = []
+
         if whm_host and whm_token:
-            accts = get_whm_accounts_for_server(whm_host, whm_token, whm_port)
-            for acc in accts:
-                domains = get_account_domains_with_creds(whm_host, whm_token, whm_port, acc.get("user", ""))
-                for d in domains:
-                    if d.get("name"):
-                        sample_projects.append((d.get("name"), d.get("path", "/home/business/public_html")))
-        # Filter out system subdomains
-        SKIP_PREFIXES = ('mail.', 'cpanel.', 'webmail.', 'webdisk.', 'cpcalendars.', 'cpcontacts.', 'autodiscover.', 'ftp.')
-        sample_projects = [(name, path) for name, path in sample_projects 
-                          if not any(name.startswith(p) for p in SKIP_PREFIXES)]
-        
-        if not sample_projects:
-            sample_projects = [("businessrevivalseries.uk", "/home/business/public_html")]
+            try:
+                from services.whm_service import (
+                    get_whm_accounts_for_server,
+                    get_account_domains_with_creds,
+                )
+
+                accts = get_whm_accounts_for_server(whm_host, whm_token, whm_port)
+
+                for acc in accts:
+                    domains = get_account_domains_with_creds(
+                        whm_host,
+                        whm_token,
+                        whm_port,
+                        acc.get("user", "")
+                    )
+                    for d in domains:
+                        name = d.get("name")
+                        path = d.get("path", "/home/business/public_html")
+
+                        if not name:
+                            continue
+
+                        if any(name.startswith(prefix) for prefix in SKIP_PREFIXES):
+                            continue
+
+                        sample_projects.append((name, path))
+            except Exception:
+                sample_projects = []
 
         for project_name, project_path in sample_projects:
-            existing = (
-                db.query(ProjectDiscovery)
-                .filter(
-                    ProjectDiscovery.project_name == project_name
-                )
-                .first()
-            )
-            if existing:
-                continue
-
             from services.dns_checker import check_project_health
+
             dns_live, web_active, proj_risk = check_project_health(project_name, project_path)
-            discovery = ProjectDiscovery(
+
+            upsert_discovery(
+                db=db,
                 server_id=server.id,
                 project_name=project_name,
                 project_path=project_path,
                 size_mb=0,
                 dns_points_here=dns_live,
                 web_config_active=web_active,
-                risk_score=proj_risk
+                risk_score=proj_risk,
+                data_source="whm_estimated"
             )
-            db.add(discovery)
 
-    db.commit()
+        db.commit()
+
     return {"ssh_connected": ssh_available}
