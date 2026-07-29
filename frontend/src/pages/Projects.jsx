@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import api from "../api/axios";
 
-const FILTERS = ["all", "live", "suspended", "duplicates", "inactive"];
+const FILTERS = ["all", "live", "suspended"];
+
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
