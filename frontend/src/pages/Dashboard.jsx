@@ -1,498 +1,214 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import StatCard from "../components/StatCard";
+import AIInsightCard from "../components/AIInsightCard";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 
-const HEALTH_COLORS = {
-  Healthy: "#22c55e",
-  Warning: "#f59e0b",
-  Critical: "#f87171",
-};
-
-const TooltipStyle = {
-  contentStyle: {
-    background: "#0F1829",
-    border: "1px solid #1E3048",
-    color: "#E2E8F0",
-    borderRadius: "8px",
-    fontSize: "12px",
-  },
-};
-
-function RiskBadge({ score }) {
-  if (score >= 70) return <span className="badge badge-red">Critical</span>;
-  if (score >= 40) return <span className="badge badge-amber">Warning</span>;
-  return <span className="badge badge-green">Healthy</span>;
-}
-
-function SourceBadge({ source }) {
-  const isLive = source === "ssh";
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "4px 10px",
-        borderRadius: "999px",
-        fontSize: "10px",
-        fontWeight: 800,
-        letterSpacing: "0.08em",
-        textTransform: "uppercase",
-        background: isLive
-          ? "rgba(34,197,94,0.12)"
-          : "rgba(148,163,184,0.12)",
-        color: isLive ? "#4ade80" : "#94a3b8",
-        border: isLive
-          ? "1px solid rgba(34,197,94,0.22)"
-          : "1px solid rgba(148,163,184,0.18)",
-      }}
-      title={
-        isLive
-          ? "Metrics from live SSH scan"
-          : "Metrics estimated from WHM fallback data"
-      }
-    >
-      {isLive ? "LIVE" : "ESTIMATED"}
-    </span>
-  );
-}
+const HEALTH_COLORS = { Healthy: "#22c55e", Warning: "#f59e0b", Critical: "#f87171" };
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
-  const [lastScanned, setLastScanned] = useState(null);
+  const [mlTraining, setMlTraining] = useState(false);
+  const [bannerMsg, setBannerMsg] = useState(null);
+  const [insights, setInsights] = useState([]);
+
   const [stats, setStats] = useState({
     total_servers: 0,
     total_projects: 0,
+    live_projects: 0,
+    duplicate_projects: 0,
+    inactive_projects: 0,
     healthy_servers: 0,
     warning_servers: 0,
     critical_servers: 0,
     top_risk_servers: [],
   });
 
-  const fetchStats = () =>
-    api.get("/stats/dashboard").then(r => setStats(r.data)).catch(console.error);
+  const fetchStats = async () => {
+    try {
+      const sRes = await api.get("/stats/dashboard");
+      if (sRes?.data) setStats(sRes.data);
+    } catch (e) {
+      console.error("Failed to fetch dashboard stats:", e);
+    }
+
+    try {
+      const iRes = await api.get("/ai/insights");
+      if (Array.isArray(iRes?.data)) setInsights(iRes.data.slice(0, 3));
+    } catch (e) {
+      console.error("Failed to fetch AI insights:", e);
+    }
+  };
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 10000);
+    const interval = setInterval(fetchStats, 5000);
     return () => clearInterval(interval);
   }, []);
 
   const handleScan = async () => {
     setScanning(true);
-    setScanResult(null);
+    setBannerMsg(null);
     try {
       const res = await api.post("/discovery/scan");
-      setScanResult({
-        ok: true,
-        msg: `Scanned ${res.data.servers_scanned} server(s) successfully`,
-      });
-      setLastScanned(new Date().toLocaleTimeString());
+      setBannerMsg({ ok: true, msg: `SSH/WHM discovery scan completed for ${res.data.servers_scanned || 0} server(s).` });
       fetchStats();
-    } catch {
-      setScanResult({ ok: false, msg: "Scan failed. Check backend logs." });
+    } catch (e) {
+      setBannerMsg({ ok: false, msg: "Discovery scan failed." });
     } finally {
       setScanning(false);
     }
   };
 
-  const barData = stats.top_risk_servers.map(s => ({
-    name: s.name.length > 12 ? s.name.slice(0, 12) + "..." : s.name,
-    CPU: s.cpu_usage || 0,
-    Memory: s.memory_usage || 0,
-    Disk: s.disk_usage || 0,
-  }));
+  const handleRetrainML = async () => {
+    setMlTraining(true);
+    setBannerMsg(null);
+    try {
+      const res = await api.post("/ml/train");
+      setBannerMsg({ ok: true, msg: `MLflow Pipeline Retrained! Run ID: ${res.data.run_id?.slice(0, 8)} (R²: ${res.data.metrics?.r2_score})` });
+      fetchStats();
+    } catch (e) {
+      setBannerMsg({ ok: false, msg: "ML training failed." });
+    } finally {
+      setMlTraining(false);
+    }
+  };
 
-  const pieData = [
-    { name: "Healthy", value: stats.healthy_servers || 0 },
-    { name: "Warning", value: stats.warning_servers || 0 },
-    { name: "Critical", value: stats.critical_servers || 0 },
-  ].filter(d => d.value > 0);
+  const barData = useMemo(
+    () =>
+      (stats.top_risk_servers || []).map((s) => ({
+        name: s.name?.length > 12 ? s.name.slice(0, 12) + "..." : s.name,
+        CPU: s.cpu_usage || 0,
+        Memory: s.memory_usage || 0,
+        Disk: s.disk_usage || 0,
+      })),
+    [stats.top_risk_servers]
+  );
+
+  const pieData = useMemo(
+    () =>
+      [
+        { name: "Healthy", value: stats.healthy_servers || 0 },
+        { name: "Warning", value: stats.warning_servers || 0 },
+        { name: "Critical", value: stats.critical_servers || 0 },
+      ].filter((d) => d.value > 0),
+    [stats]
+  );
 
   return (
-    <div style={{ background: "#080e1a", minHeight: "100vh", padding: "0" }}>
-      <div style={{ padding: "32px" }}>
-        {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            marginBottom: "28px",
-            gap: "16px",
-          }}
-        >
-          <div>
-            <p
-              style={{
-                fontSize: "11px",
-                color: "#38bdf8",
-                fontWeight: 700,
-                letterSpacing: "0.12em",
-                marginBottom: "6px",
-              }}
-            >
-              INFRASTRUCTURE OVERVIEW
-            </p>
-            <h1
-              style={{
-                fontSize: "24px",
-                fontWeight: 800,
-                color: "#f1f5f9",
-                marginBottom: "4px",
-              }}
-            >
-              Dashboard
-            </h1>
-            <p style={{ fontSize: "13px", color: "#94a3b8" }}>
-              Server health, discovery, and risk visibility with live and estimated data clearly labeled
-            </p>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-              gap: "6px",
-            }}
-          >
-            <button
-              onClick={handleScan}
-              disabled={scanning}
-              className="btn-primary"
-              style={{
-                padding: "12px 28px",
-                fontSize: "15px",
-                fontWeight: 800,
-                letterSpacing: "0.03em",
-              }}
-            >
-              {scanning ? (
-                <>
-                  <span className="spinner" /> Scanning...
-                </>
-              ) : (
-                <>
-                  <span>+</span> Scan All Servers
-                </>
-              )}
-            </button>
-
-            {lastScanned && (
-              <span style={{ fontSize: "11px", color: "#64748b" }}>
-                Last scan: {lastScanned}
-              </span>
-            )}
-          </div>
+    <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh" }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px", flexWrap: "wrap", gap: "16px" }}>
+        <div>
+          <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 800, letterSpacing: "0.14em", marginBottom: "6px" }}>
+            INFRASTRUCTURE INTELLIGENCE DASHBOARD
+          </p>
+          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>System Overview</h1>
+          <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
+            Centralized server management, live project discovery, duplicate detection, and ML risk predictions
+          </p>
         </div>
 
-        {/* Scan Result Banner */}
-        {scanResult && (
-          <div
-            className="animate-fadein"
-            style={{
-              padding: "12px 16px",
-              borderRadius: "8px",
-              marginBottom: "24px",
-              background: scanResult.ok
-                ? "rgba(34,197,94,0.07)"
-                : "rgba(248,113,113,0.07)",
-              border: scanResult.ok
-                ? "1px solid rgba(34,197,94,0.25)"
-                : "1px solid rgba(248,113,113,0.25)",
-              color: scanResult.ok ? "#4ade80" : "var(--red)",
-              fontSize: "13px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            {scanResult.ok ? "OK" : "ERR"} {scanResult.msg}
-          </div>
-        )}
-
-        {/* Stat Cards */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              window.innerWidth <= 768 ? "repeat(2, 1fr)" : "repeat(auto-fit, minmax(140px, 1fr))",
-            gap: "14px",
-            marginBottom: "28px",
-          }}
-        >
-          <div onClick={() => window.location.href = "/servers"} style={{ cursor: "pointer" }}>
-            <StatCard title="Total Servers" value={stats.total_servers} icon="🖥️" color="blue" />
-          </div>
-          <div onClick={() => window.location.href = "/projects"} style={{ cursor: "pointer" }}>
-            <StatCard title="Projects" value={stats.total_projects} icon="📁" color="teal" />
-          </div>
-          <div onClick={() => window.location.href = "/servers"} style={{ cursor: "pointer" }}>
-            <StatCard title="Healthy" value={stats.healthy_servers} icon="✅" color="green" />
-          </div>
-          <div onClick={() => window.location.href = "/servers"} style={{ cursor: "pointer" }}>
-            <StatCard title="Warning" value={stats.warning_servers} icon="⚠️" color="amber" />
-          </div>
-          <div onClick={() => window.location.href = "/servers"} style={{ cursor: "pointer" }}>
-            <StatCard title="Critical" value={stats.critical_servers} icon="🔴" color="red" />
-          </div>
-        </div>
-
-        {/* Charts Row */}
-        {stats.top_risk_servers.length > 0 && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: window.innerWidth <= 768 ? "1fr" : "2fr 1fr",
-              gap: "16px",
-              marginBottom: "24px",
-            }}
-          >
-            <div className="card">
-              <p
-                style={{
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  color: "#94a3b8",
-                  letterSpacing: "0.08em",
-                  marginBottom: "16px",
-                  textTransform: "uppercase",
-                }}
-              >
-                Server Resource Usage
-              </p>
-              <ResponsiveContainer width="100%" height={210}>
-                <BarChart data={barData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                  <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#64748b", fontSize: 11 }} domain={[0, 100]} axisLine={false} tickLine={false} />
-                  <Tooltip {...TooltipStyle} />
-                  <Legend wrapperStyle={{ color: "#64748b", fontSize: 11 }} />
-                  <Bar dataKey="CPU" fill="#38BDF8" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Memory" fill="#2DD4BF" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Disk" fill="#F59E0B" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="card">
-              <p
-                style={{
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  color: "#94a3b8",
-                  letterSpacing: "0.08em",
-                  marginBottom: "16px",
-                  textTransform: "uppercase",
-                }}
-              >
-                Health Distribution
-              </p>
-              {pieData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={210}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={55}
-                      outerRadius={82}
-                      paddingAngle={4}
-                      dataKey="value"
-                    >
-                      {pieData.map((entry, i) => (
-                        <Cell key={i} fill={HEALTH_COLORS[entry.name]} />
-                      ))}
-                    </Pie>
-                    <Tooltip {...TooltipStyle} />
-                    <Legend wrapperStyle={{ color: "#64748b", fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <p style={{ color: "#64748b", fontSize: "13px", marginTop: "16px" }}>
-                  Run a scan to see data
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Top Risk Servers */}
-        <div className="card">
-          <p
-            style={{
-              fontSize: "13px",
-              fontWeight: 700,
-              color: "#94a3b8",
-              letterSpacing: "0.08em",
-              marginBottom: "12px",
-              textTransform: "uppercase",
-            }}
-          >
-            Top Risk Servers
-          </p>
-
-          <p
-            style={{
-              fontSize: "11px",
-              color: "#64748b",
-              marginBottom: "14px",
-              lineHeight: 1.5,
-            }}
-          >
-            LIVE = SSH-verified metrics. ESTIMATED = WHM-based fallback values. Fields marked with * are inferred when SSH is unavailable.
-          </p>
-
-          {stats.top_risk_servers.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 0" }}>
-              <div style={{ fontSize: "32px", marginBottom: "12px" }}>+</div>
-              <p style={{ color: "#94a3b8", fontWeight: 600, marginBottom: "4px" }}>
-                No servers found
-              </p>
-              <p style={{ color: "#64748b", fontSize: "13px" }}>
-                Click Scan All Servers to discover your infrastructure
-              </p>
-            </div>
-          ) : (
-            stats.top_risk_servers.map((server) => (
-              <div
-                key={server.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "16px",
-                  marginBottom: "10px",
-                  borderRadius: "10px",
-                  background: "#1e293b",
-                  border: "1px solid #1e293b",
-                  transition: "border-color 0.2s",
-                }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = "var(--border-lit)"}
-                onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
-              >
-                <div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      marginBottom: "4px",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontWeight: 700,
-                        color: "#f1f5f9",
-                        fontSize: "14px",
-                      }}
-                    >
-                      {server.name}
-                    </div>
-
-                    <SourceBadge source={server.data_source} />
-                  </div>
-
-                  <div style={{ fontSize: "12px", color: "#64748b" }}>
-                    {server.ip_address || server.ipaddress}
-                  </div>
-
-                  {server.last_scanned_at && (
-                    <div style={{ fontSize: "11px", color: "#475569", marginTop: "4px" }}>
-                      Last scan: {new Date(server.last_scanned_at).toLocaleString()}
-                    </div>
-                  )}
-
-                  {server.insights?.map((insight, i) => (
-                    <div key={i} style={{ marginTop: "4px", color: "#f59e0b", fontSize: "12px" }}>
-                      - {insight}
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "24px" }}>
-                  <div style={{ marginBottom: "6px" }}>
-                    <RiskBadge score={server.risk_score} />
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: "#64748b",
-                      fontWeight: 600,
-                      letterSpacing: "0.05em",
-                    }}
-                  >
-                    Risk Score:{" "}
-                    <span
-                      style={{
-                        color:
-                          server.risk_score >= 70
-                            ? "var(--red)"
-                            : server.risk_score >= 40
-                            ? "var(--amber)"
-                            : "var(--green)",
-                      }}
-                    >
-                      {server.risk_score}
-                    </span>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "12px",
-                      marginTop: "6px",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    {[
-                      {
-                        lbl: server.data_source === "ssh" ? "CPU" : "CPU*",
-                        val: server.cpu_usage ?? 0,
-                      },
-                      {
-                        lbl: server.data_source === "ssh" ? "MEM" : "MEM*",
-                        val: server.memory_usage ?? 0,
-                      },
-                      {
-                        lbl: "DISK",
-                        val: server.disk_usage ?? 0,
-                      },
-                    ].map(({ lbl, val }) => (
-                      <div key={lbl} style={{ textAlign: "center" }}>
-                        <div style={{ fontSize: "10px", color: "#64748b", marginBottom: "2px" }}>
-                          {lbl}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            color:
-                              val >= 80
-                                ? "var(--red)"
-                                : val >= 60
-                                ? "var(--amber)"
-                                : "var(--txt-2)",
-                          }}
-                        >
-                          {val}%
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button onClick={handleScan} disabled={scanning} className="btn-primary">
+            {scanning ? <><span className="spinner" /> Scanning...</> : "🔍 Scan Infrastructure"}
+          </button>
+          <button onClick={handleRetrainML} disabled={mlTraining} style={{
+            padding: "10px 18px", background: "linear-gradient(135deg,#8b5cf6,#6366f1)",
+            color: "white", border: "none", borderRadius: "10px", fontWeight: 800, cursor: "pointer"
+          }}>
+            {mlTraining ? <><span className="spinner" /> Retraining...</> : "⚡ Retrain MLflow"}
+          </button>
         </div>
       </div>
+
+      {bannerMsg && (
+        <div style={{ padding: "12px 16px", borderRadius: "8px", background: bannerMsg.ok ? "rgba(34,197,94,0.12)" : "rgba(248,113,113,0.12)", border: bannerMsg.ok ? "1px solid rgba(34,197,94,0.3)" : "1px solid rgba(248,113,113,0.3)", color: bannerMsg.ok ? "#4ade80" : "#f87171", fontSize: "13px", fontWeight: 600, marginBottom: "24px" }}>
+          {bannerMsg.msg}
+        </div>
+      )}
+
+      {/* KPI Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "16px", marginBottom: "28px" }}>
+        <div onClick={() => navigate("/servers")} style={{ cursor: "pointer" }}>
+          <StatCard title="Total Servers" value={stats.total_servers} icon="🖥️" color="blue" subtitle="Live SSH / WHM" />
+        </div>
+        <div onClick={() => navigate("/projects")} style={{ cursor: "pointer" }}>
+          <StatCard title="Discovered Projects" value={stats.total_projects} icon="📁" color="teal" subtitle="Across all servers" />
+        </div>
+        <div onClick={() => navigate("/projects?filter=live")} style={{ cursor: "pointer" }}>
+          <StatCard title="Live Deployments" value={stats.live_projects} icon="✅" color="green" subtitle="DNS + VHost verified" />
+        </div>
+        <div onClick={() => navigate("/duplicates")} style={{ cursor: "pointer" }}>
+          <StatCard title="Duplicate Copies" value={stats.duplicate_projects} icon="👯" color="amber" subtitle="Wasting storage" />
+        </div>
+        <div onClick={() => navigate("/inactive")} style={{ cursor: "pointer" }}>
+          <StatCard title="3-Yr Inactive" value={stats.inactive_projects} icon="⏳" color="red" subtitle="Archive candidates" />
+        </div>
+      </div>
+
+      {/* Charts */}
+      {stats.top_risk_servers.length > 0 && (
+        <div className="dashboard-grid-charts" style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "20px", marginBottom: "28px" }}>
+
+          <div className="card">
+            <h3 style={{ fontSize: "12px", fontWeight: 800, color: "#94a3b8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "16px" }}>
+              Server Resource Utilization (%)
+            </h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={barData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "#64748b", fontSize: 11 }} domain={[0, 100]} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: "#0d1524", border: "1px solid #1d3047", borderRadius: "8px", color: "#f1f5f9" }} />
+                <Legend wrapperStyle={{ color: "#64748b", fontSize: 11 }} />
+                <Bar dataKey="CPU" fill="#38BDF8" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Memory" fill="#2DD4BF" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Disk" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="card">
+            <h3 style={{ fontSize: "12px", fontWeight: 800, color: "#94a3b8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "16px" }}>
+              Fleet Health Status
+            </h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={4} dataKey="value">
+                  {pieData.map((entry, i) => (
+                    <Cell key={i} fill={HEALTH_COLORS[entry.name]} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ background: "#0d1524", border: "1px solid #1d3047", borderRadius: "8px", color: "#f1f5f9" }} />
+                <Legend wrapperStyle={{ color: "#64748b", fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* AI Alerts Feed */}
+      {insights.length > 0 && (
+        <div>
+          <h3 style={{ fontSize: "14px", fontWeight: 800, color: "#f1f5f9", marginBottom: "14px" }}>
+            Top AI Recommendations & Security Alerts
+          </h3>
+          {insights.map((ins) => (
+            <AIInsightCard
+              key={ins.id}
+              title={ins.title}
+              description={ins.description}
+              recommendation={ins.recommendation}
+              severity={ins.severity}
+              category={ins.category}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

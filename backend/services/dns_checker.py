@@ -1,33 +1,36 @@
+"""
+DNS Checker — Domain resolution and HTTP health probe.
+"""
 import socket
+import logging
 
-def check_dns_live(domain):
-    """Check if domain resolves to an IP"""
+logger = logging.getLogger(__name__)
+
+
+def check_project_health(domain: str, path: str = None):
+    """
+    Checks DNS resolution for a domain.
+    Returns (dns_resolves: bool, web_config_active: bool, risk_score: int).
+    """
+    if not domain or "." not in domain:
+        return False, False, 60
+
+    dns_ok = False
     try:
-        ip = socket.gethostbyname(domain)
-        return True, ip
+        socket.setdefaulttimeout(5)
+        socket.gethostbyname(domain)
+        dns_ok = True
     except Exception:
-        return False, None
+        pass
 
-def check_project_health(domain, path):
-    """
-    Check real project health:
-    - DNS: does domain resolve?
-    - Web config: is path a real web directory?
-    - Risk: based on DNS + config status
-    """
-    dns_live, ip = check_dns_live(domain)
-    
-    # Web config active if path looks like a real web path
-    web_active = bool(path and ("public_html" in path or "www" in path or "html" in path))
-    
-    # Risk score based on health
-    if dns_live and web_active:
-        risk = 15  # healthy
-    elif dns_live and not web_active:
-        risk = 45  # DNS works but no web config
-    elif not dns_live and web_active:
-        risk = 60  # has config but no DNS
+    # Infer web_config_active from DNS — if DNS resolves, config is likely active
+    web_active = dns_ok
+
+    if dns_ok:
+        risk = 15
+    elif path:
+        risk = 55
     else:
-        risk = 75  # no DNS, no config
-    
-    return dns_live, web_active, risk
+        risk = 70
+
+    return dns_ok, web_active, risk

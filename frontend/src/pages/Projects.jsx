@@ -1,130 +1,193 @@
-import React, { useEffect, useState } from 'react';
-import api from '../api/axios';
+import React, { useEffect, useState } from "react";
+import api from "../api/axios";
 
-const FILTERS = ['all', 'duplicates'];
+const FILTERS = ["all", "live", "suspended", "duplicates", "inactive"];
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
-  const [filter, setFilter] = useState('all');
+  const [servers, setServers] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [serverId, setServerId] = useState("all");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [actionMsg, setActionMsg] = useState(null);
 
-  const fetchProjects = async (f = 'all') => {
-    setLoading(true);
+  const fetchServers = async () => {
     try {
-      const endpointMap = { all: '/projects/', duplicates: '/projects/duplicates' }; const endpoint = endpointMap[f] || '/projects/';
-      const res = await api.get(endpoint);
-      const data = Array.isArray(res.data) ? res.data : [];
-      setProjects(data);
-    } catch (err) {
-      setProjects([]);
+      const res = await api.get("/servers/");
+      setServers(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchProjects = async () => {
+    try {
+      const params = { filter, search, limit: 1000 };
+      if (serverId !== "all") {
+        params.server_id = serverId;
+      }
+      const res = await api.get("/projects/", { params });
+      const data = res.data?.projects || res.data || [];
+      setProjects(Array.isArray(data) ? data : []);
+      setTotalCount(res.data?.total || data.length);
+    } catch (e) {
+      console.error("fetchProjects error:", e);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchProjects(filter); }, [filter]);
+  useEffect(() => {
+    fetchServers();
+  }, []);
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this project?')) return;
-    await api.delete(`/projects/${id}`);
-    fetchProjects(filter);
+  useEffect(() => {
+    fetchProjects();
+    const interval = setInterval(fetchProjects, 15000);
+    return () => clearInterval(interval);
+  }, [filter, search, serverId]);
+
+  const handleDelete = async (id, name) => {
+    if (!window.confirm(`Delete project '${name}'?`)) return;
+    try {
+      await api.delete(`/projects/${id}`);
+      setActionMsg({ ok: true, msg: `Project '${name}' deleted.` });
+      fetchProjects();
+    } catch (e) {
+      setActionMsg({ ok: false, msg: `Delete failed: ${e.response?.data?.detail || e.message}` });
+    }
   };
 
-  const riskColor = (score) =>
-    score >= 70 ? '#ef4444' : score >= 40 ? '#f59e0b' : '#22c55e';
+  const riskColor = (score) => (score >= 70 ? "#f87171" : score >= 40 ? "#fbbf24" : "#4ade80");
 
   return (
     <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh" }}>
+      {/* Header */}
       <div style={{ marginBottom: "28px" }}>
-        <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 700, letterSpacing: "0.12em", marginBottom: "6px" }}>INFRASTRUCTURE</p>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Projects</h1>
+        <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 800, letterSpacing: "0.14em", marginBottom: "6px" }}>
+          INFRASTRUCTURE PROJECTS EXPLORER
+        </p>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Discovered Projects</h1>
         <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-          {projects.length} project{projects.length !== 1 ? 's' : ''} found
+          Showing {projects.length} of {totalCount} project(s) discovered across server fleet
         </p>
       </div>
 
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
-        {FILTERS.map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            style={{ padding: '8px 20px', borderRadius: '20px', border: 'none',
-              cursor: 'pointer', fontWeight: '600', fontSize: '13px', textTransform: 'capitalize',
-              background: filter === f ? '#38bdf8' : '#1e293b',
-              color: filter === f ? '#0f172a' : '#94a3b8' }}>
-            {f}
-          </button>
-        ))}
+      {actionMsg && (
+        <div style={{ padding: "12px 16px", borderRadius: "8px", marginBottom: "20px", background: actionMsg.ok ? "rgba(34,197,94,0.12)" : "rgba(248,113,113,0.12)", border: actionMsg.ok ? "1px solid rgba(34,197,94,0.3)" : "1px solid rgba(248,113,113,0.3)", color: actionMsg.ok ? "#4ade80" : "#f87171", fontSize: "13px", fontWeight: 600 }}>
+          {actionMsg.msg}
+          <button onClick={() => setActionMsg(null)} style={{ float: "right", background: "none", border: "none", color: "inherit", cursor: "pointer", fontWeight: 800 }}>✕</button>
+        </div>
+      )}
+
+      {/* Filter Tabs, Server Select & Search */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          {FILTERS.map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{
+                padding: "8px 18px", borderRadius: "20px", border: "none", fontWeight: 700, fontSize: "12px",
+                cursor: "pointer", textTransform: "capitalize",
+                background: filter === f ? "#38bdf8" : "#111c2e",
+                color: filter === f ? "#080e1a" : "#94a3b8"
+              }}
+            >
+              {f === "suspended" ? "Suspended (Not Live)" : f}
+            </button>
+          ))}
+
+          <select
+            value={serverId}
+            onChange={(e) => setServerId(e.target.value)}
+            style={{
+              padding: "8px 14px", borderRadius: "20px", background: "#111c2e", border: "1px solid #1d3047",
+              color: "#f1f5f9", fontWeight: 700, fontSize: "12px", cursor: "pointer"
+            }}
+          >
+            <option value="all">All Servers ({servers.length})</option>
+            {servers.map((s) => (
+              <option key={s.id} value={s.id}>
+                Server: {s.name} ({s.projects_count || 0} projs)
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <input
+          type="text"
+          placeholder="Search by project, domain, or path..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="input-base"
+          style={{ width: "300px" }}
+        />
       </div>
 
-      {projects.length === 0 && !loading ? (
-        <div style={{ color: '#94a3b8', padding: '32px' }}>No projects found. Run a scan from the Dashboard first.</div>
+      {/* Table */}
+      {loading ? (
+        <div style={{ color: "#94a3b8" }}>Loading project discovery records...</div>
       ) : projects.length === 0 ? (
-        <div style={{ background: '#1e293b', borderRadius: '12px', padding: '48px',
-          border: '1px solid #334155', textAlign: 'center' }}>
-          <p style={{ color: '#94a3b8', fontSize: '16px' }}>
-            No projects found. Run a scan from the Dashboard first.
-          </p>
+        <div className="card" style={{ textAlign: "center", padding: "48px" }}>
+          <p style={{ color: "#94a3b8", fontSize: "15px" }}>No projects match your query.</p>
         </div>
       ) : (
-        <div className="card" style={{ overflow: 'hidden', padding: 0, background: '#1e293b' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#0f172a', borderBottom: '1px solid #334155' }}>
-                {['Project', 'Server', 'Path', 'Size', 'DNS', 'Web Config', 'Risk', ''].map(h => (
-                  <th key={h} style={{ padding: '12px 16px', color: '#94a3b8', fontSize: '12px',
-                    fontWeight: '600', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {projects.map((p, i) => (
-                <tr key={p.id}
-                  style={{ borderBottom: '1px solid #0f172a',
-                    background: i % 2 === 0 ? '#1e293b' : '#162032' }}>
-                  <td style={{ padding: '14px 16px', color: '#f1f5f9', fontWeight: '600', fontSize: '14px' }}>
-                    {p.project_name || p.name}
-                  </td>
-                  <td style={{ padding: '14px 16px', color: '#94a3b8', fontSize: '13px' }}>
-                    {p.server_name || `Server ${p.server_id}`}
-                  </td>
-                  <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '12px', fontFamily: 'monospace' }}>
-                    {p.project_path || p.path || '-'}
-                  </td>
-                  <td style={{ padding: '14px 16px', color: '#94a3b8', fontSize: '13px' }}>
-                    {p.size_mb ? `${p.size_mb} MB` : '-'}
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600',
-                      background: p.dns_points_here ? '#052e16' : '#2d0a0a',
-                      color: p.dns_points_here ? '#4ade80' : '#f87171' }}>
-                      {p.dns_points_here ? '● Live' : '● Dead'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600',
-                      background: p.web_config_active ? '#052e16' : '#2d0a0a',
-                      color: p.web_config_active ? '#4ade80' : '#f87171' }}>
-                      {p.web_config_active ? '● Active' : '● Inactive'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <span style={{ fontWeight: 800, fontSize: '15px', color: riskColor(p.risk_score) }}>
-                      {p.risk_score ?? '-'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <button onClick={() => handleDelete(p.id)}
-                      style={{ background: 'transparent', color: '#ef4444',
-                        border: '1px solid #ef4444', padding: '5px 12px',
-                        borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
-                      Delete
-                    </button>
-                  </td>
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div className="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Project Name</th>
+                  <th>Server</th>
+                  <th>Framework</th>
+                  <th>Domain</th>
+                  <th>Path</th>
+                  <th>Account Status</th>
+                  <th>DNS Status</th>
+                  <th>Risk</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {projects.map((p) => {
+                  const isSuspended = p.is_inactive || p.env_type === "archived" || p.status === "suspended";
+                  const isLive = p.is_live && !isSuspended;
+                  return (
+                    <tr key={p.id}>
+                      <td style={{ fontWeight: 800, color: "#f1f5f9" }}>{p.project_name || p.name}</td>
+                      <td style={{ color: "#94a3b8" }}>{p.server_name || `Server ${p.server_id}`}</td>
+                      <td>
+                        <span style={{ background: "rgba(56,189,248,0.12)", color: "#38bdf8", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase" }}>
+                          {p.framework || "unknown"}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: "monospace", color: "#38bdf8" }}>{p.domain || "-"}</td>
+                      <td style={{ fontFamily: "monospace", color: "#64748b", fontSize: "12px" }}>{p.project_path || "-"}</td>
+                      <td>
+                        <span className={isLive ? "badge badge-green" : "badge badge-red"}>
+                          {isLive ? "● Active (Live)" : "● Suspended (Not Live)"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={p.dns_points_here ? "badge badge-green" : "badge badge-red"}>
+                          {p.dns_points_here ? "● Live DNS" : "● Dead DNS"}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 800, color: riskColor(p.risk_score) }}>{p.risk_score ?? "-"}</td>
+                      <td>
+                        <button onClick={() => handleDelete(p.id, p.project_name || p.name)} className="btn-danger" style={{ padding: "4px 10px", fontSize: "11px" }}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

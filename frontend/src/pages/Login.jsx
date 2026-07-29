@@ -58,7 +58,6 @@ export default function Login() {
             fontSize: "24px", fontWeight: 800, color: "white",
             margin: "0 auto 14px",
             boxShadow: "0 0 24px rgba(56,189,248,0.3)",
-            animation: "pulse-ring 2.4s ease-out infinite",
           }}>I</div>
           <h1 style={{ fontSize: "20px", fontWeight: 800, color: "#f1f5f9", marginBottom: "6px" }}>
             Infra Intel
@@ -121,11 +120,6 @@ export default function Login() {
             ) : "Sign In →"}
           </button>
         </form>
-
-        <p style={{ textAlign: "center", marginTop: "24px",
-          fontSize: "11px", color: "#64748b", letterSpacing: "0.05em" }}>
-          Infra Intel v1.0 · Secure Access
-        </p>
       </div>
     </div>
   );

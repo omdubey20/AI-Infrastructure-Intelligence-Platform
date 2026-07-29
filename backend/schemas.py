@@ -46,6 +46,7 @@ class ServerBase(BaseModel):
     description: Optional[str] = None
     ssh_username: Optional[str] = None
     ssh_password: Optional[str] = None
+    ssh_private_key: Optional[str] = None
     ssh_port: int = 22
     whm_host: Optional[str] = None
     whm_token: Optional[str] = None
@@ -60,8 +61,13 @@ class ServerUpdate(ServerBase):
     pass
 
 
-class ServerOut(ServerBase):
+class ServerOut(BaseModel):
     id: int
+    name: str
+    ip_address: str
+    environment: str = "production"
+    status: str = "active"
+    description: Optional[str] = None
     created_at: datetime
     cpu_usage: int = 0
     memory_usage: int = 0
@@ -73,6 +79,8 @@ class ServerOut(ServerBase):
     ssh_port: int = 22
     whm_host: Optional[str] = None
     whm_port: int = 2087
+    data_source: Optional[str] = None
+    last_scanned_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -97,14 +105,19 @@ class ProjectUpdate(ProjectBase):
     pass
 
 
-class ProjectOut(ProjectBase):
+class ProjectOut(BaseModel):
     id: int
-    created_at: datetime
+    name: str
+    server_id: Optional[int] = None
+    server_name: Optional[str] = None
+    domain: Optional[str] = None
+    project_path: Optional[str] = None
+    size_mb: int = 0
+    dns_points_here: bool = False
+    web_config_active: bool = False
     risk_score: int = 0
-    ssh_username: Optional[str] = None
-    ssh_port: int = 22
-    whm_host: Optional[str] = None
-    whm_port: int = 2087
+    data_source: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

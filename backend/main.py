@@ -1,63 +1,67 @@
+"""
+AI Infrastructure Intelligence Platform
+Main FastAPI Backend Server
+"""
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
+
 from database import Base, engine, get_db
-from models import Server
+from models import Server, ProjectDiscovery
 from services.server_scanner import scan_server_projects
-from routers import stats, projects, servers, cleanup, discovery, whm
+from services.ai_insights_engine import generate_all_insights
+from services.duplicate_detector import detect_duplicates
+from services.inactive_detector import detect_inactive_projects
+
+from routers import stats, projects, servers, cleanup, discovery, whm, ml, ai, audit, dashboard_spec
 from routers.auth import router as auth_router
-import models
-import logging
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("backend.main")
 
 Base.metadata.create_all(bind=engine, checkfirst=True)
 
 scheduler = BackgroundScheduler()
 
 
-def nightly_scan_job():
-    logger.info("APScheduler: Starting nightly scan...")
+def hourly_sync_job():
+    """Hourly background synchronization job for metrics, discovery, AI & ML."""
+    logger.info("APScheduler: Running hourly synchronization job...")
     db = next(get_db())
     try:
-        all_servers = db.query(Server).all()
-        for server in all_servers:
-            try:
-                scan_server_projects(db, server)
-                logger.info(f"APScheduler: Scanned {server.name}")
-            except Exception as e:
-                logger.error(f"APScheduler: Failed to scan {server.name}: {e}")
+        discoveries = db.query(ProjectDiscovery).all()
+        detect_duplicates(discoveries)
+        detect_inactive_projects(discoveries)
+        generate_all_insights(db)
+        db.commit()
+    except Exception as e:
+        logger.error(f"APScheduler sync job error: {e}")
     finally:
         db.close()
-    logger.info("APScheduler: Nightly scan complete.")
+    logger.info("APScheduler: Hourly sync job completed.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    scheduler.add_job(nightly_scan_job, "cron", hour=2, minute=0, id="nightly_scan")
+    scheduler.add_job(hourly_sync_job, "interval", hours=1, id="hourly_sync")
     scheduler.start()
-    logger.info("APScheduler started — nightly scan scheduled at 2:00 AM")
+    logger.info("APScheduler started — hourly background sync active.")
     yield
     scheduler.shutdown()
-    logger.info("APScheduler stopped")
+    logger.info("APScheduler stopped.")
 
 
 app = FastAPI(
     title="AI Infrastructure Intelligence Platform",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "https://ai-infrastructure-intelligence-plat.vercel.app",
-        "https://ai-infrastructure-intelligence-plat-eta.vercel.app",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -70,11 +74,16 @@ app.include_router(cleanup.router)
 app.include_router(stats.router)
 app.include_router(discovery.router)
 app.include_router(whm.router)
+app.include_router(ml.router)
+app.include_router(ai.router)
+app.include_router(audit.router)
+app.include_router(dashboard_spec.router)
+
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def root():
-    return {"message": "AI Infrastructure Intelligence Platform", "status": "running"}
+    return {"message": "AI Infrastructure Intelligence Platform", "version": "2.0.0", "status": "running"}
 
 
 @app.get("/health")

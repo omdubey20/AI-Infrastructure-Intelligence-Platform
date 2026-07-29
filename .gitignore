@@ -5,6 +5,13 @@ __pycache__/
 venv/
 *.egg-info/
 .env
+backend/.env
+
+# MLflow local tracking
+mlflow.db
+mlruns/
+backend/mlflow.db
+backend/mlruns/
 
 # Node
 frontend/node_modules/

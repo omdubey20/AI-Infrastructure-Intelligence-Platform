@@ -1,203 +1,262 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
-import { useAuth } from "../context/AuthContext";
-import { useData } from "../context/DataContext";
 
-const initialForm = { name: "", ip_address: "", environment: "production", status: "active", description: "", ssh_username: "root", ssh_password: "", ssh_port: "22", whm_host: "", whm_token: "", whm_port: "2087" };
+const initialForm = {
+  name: "", ip_address: "", environment: "production", status: "active",
+  description: "", ssh_username: "root", ssh_password: "", ssh_port: "22",
+  whm_host: "", whm_token: "", whm_port: "2087"
+};
 
 export default function Servers() {
-  const { role } = useAuth();
-  const isAdmin = role === "admin";
+  const navigate = useNavigate();
   const [servers, setServers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [editServer, setEditServer] = useState(null);
+  const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(initialForm);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [fetching, setFetching] = useState(true);
+  const [envFilter, setEnvFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [actionMsg, setActionMsg] = useState(null);
 
   const fetchServers = async () => {
-    setFetching(true);
     try {
       const res = await api.get("/servers/");
       setServers(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      setError("Failed to load servers.");
+    } catch (e) {
+      console.error("fetchServers error:", e);
     } finally {
-      setFetching(false);
+      setLoading(false);
     }
   };
 
-  const { servers: preloaded, loaded } = useData();
   useEffect(() => {
-    if (loaded && preloaded && preloaded.length > 0) {
-      setServers(preloaded);
-      setFetching(false);
-    } else {
-      fetchServers();
-    }
-  }, [loaded, preloaded]);
+    fetchServers();
+    const interval = setInterval(fetchServers, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const openAddForm = () => { setEditServer(null); setForm(initialForm); setError(""); setShowForm(true); };
+  const handleOpenAdd = () => {
+    setEditId(null);
+    setForm(initialForm);
+    setShowForm(true);
+  };
 
-  const openEditForm = (s) => {
-    setEditServer(s);
-    setForm({ name: s.name||"", ip_address: s.ip_address||"", environment: s.environment||"production", status: s.status||"active", description: s.description||"", ssh_username: s.ssh_username||"root", ssh_password: "", ssh_port: s.ssh_port||"22", whm_host: s.whm_host||"", whm_token: "", whm_port: s.whm_port||"2087" });
-    setError(""); setShowForm(true);
+  const handleOpenEdit = (s, e) => {
+    e.stopPropagation();
+    setEditId(s.id);
+    setForm({
+      name: s.name || "",
+      ip_address: s.ip_address || "",
+      environment: s.environment || "production",
+      status: s.status || "active",
+      description: s.description || "",
+      ssh_username: s.ssh_username || "root",
+      ssh_password: "",
+      ssh_port: String(s.ssh_port || "22"),
+      whm_host: s.whm_host || s.ip_address || "",
+      whm_token: "",
+      whm_port: String(s.whm_port || "2087")
+    });
+    setShowForm(true);
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault(); setLoading(true); setError("");
+    e.preventDefault();
+    setSaving(true);
     try {
-      if (editServer) await api.put("/servers/" + editServer.id, form);
-      else await api.post("/servers/", form);
-      await fetchServers(); setShowForm(false); setEditServer(null); setForm(initialForm);
-    } catch (err) { setError(err.response?.data?.detail || "Failed to save."); }
-    finally { setLoading(false); }
+      if (editId) {
+        await api.put(`/servers/${editId}`, form);
+        setActionMsg({ ok: true, msg: `Server '${form.name}' updated and scanning...` });
+      } else {
+        await api.post("/servers/", form);
+        setActionMsg({ ok: true, msg: `Server '${form.name}' added and scanning...` });
+      }
+      fetchServers();
+      setShowForm(false);
+      setForm(initialForm);
+      setEditId(null);
+    } catch (err) {
+      setActionMsg({ ok: false, msg: err.response?.data?.detail || "Failed to save server." });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = async (id) => {
-    const ok = window.confirm("Delete this server?");
-    if (!ok) return;
-    try { await api.delete("/servers/" + id); await fetchServers(); }
-    catch (err) { setError("Failed to delete."); }
+  const handleScanSingle = async (id, name, e) => {
+    e.stopPropagation();
+    setActionMsg({ ok: true, msg: `Scanning ${name}...` });
+    try {
+      const res = await api.post(`/servers/${id}/discover`);
+      setActionMsg({ ok: true, msg: `Scan complete for ${name}: ${res.data.projects_found || 0} project(s) discovered.` });
+      fetchServers();
+    } catch (err) {
+      setActionMsg({ ok: false, msg: `Scan failed for ${name}: ${err.response?.data?.detail || err.message}` });
+    }
   };
 
-  const inp = { width:"100%", padding:"10px 12px", background:"#0f172a", border:"1px solid #334155", borderRadius:"8px", color:"white", fontSize:"14px", boxSizing:"border-box" };
-  const lbl = { display:"block", color:"#94a3b8", fontSize:"12px", fontWeight:600, marginBottom:"6px" };
+  const handleDelete = async (id, name, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete server '${name}' and all its discovered projects?`)) return;
+    try {
+      await api.delete(`/servers/${id}`);
+      setActionMsg({ ok: true, msg: `Server '${name}' deleted successfully.` });
+      fetchServers();
+    } catch (err) {
+      setActionMsg({ ok: false, msg: `Delete failed: ${err.response?.data?.detail || err.message}` });
+    }
+  };
+
+  const filteredServers = servers.filter(s => {
+    if (envFilter !== "all" && s.environment !== envFilter) return false;
+    if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.ip_address.includes(search)) return false;
+    return true;
+  });
 
   return (
-    <div style={{ padding:"32px", background:"#080e1a", minHeight:"100vh" }}>
-
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"28px" }}>
+    <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px", flexWrap: "wrap", gap: "16px" }}>
         <div>
-          <p style={{ fontSize:"11px", color:"#38bdf8", fontWeight:700, letterSpacing:"0.12em", marginBottom:"6px" }}>INFRASTRUCTURE</p>
-          <h1 style={{ fontSize:"24px", fontWeight:800, color:"#f1f5f9" }}>Servers</h1>
-          <p style={{ fontSize:"13px", color:"#94a3b8", marginTop:"4px" }}>{servers.length} server(s) registered</p>
+          <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 800, letterSpacing: "0.14em", marginBottom: "6px" }}>
+            INFRASTRUCTURE FLEET
+          </p>
+          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Servers</h1>
+          <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
+            {servers.length} server(s) registered across environments
+          </p>
         </div>
-        {isAdmin && <button onClick={openAddForm} className="btn-primary">+ Add Server</button>}
+        <button onClick={handleOpenAdd} className="btn-primary">+ Add Server</button>
       </div>
 
-      {error && <div style={{ background:"rgba(248,113,113,0.08)", border:"1px solid rgba(248,113,113,0.25)", borderRadius:"8px", padding:"12px 16px", marginBottom:"20px", color:"#f87171", fontSize:"13px" }}>{error}</div>}
-
-      {fetching ? <p style={{ color:"#64748b" }}>Loading...</p> : servers.length === 0 ? (
-        <div style={{ textAlign:"center", padding:"60px 0" }}>
-          <p style={{ color:"#94a3b8", fontSize:"16px", fontWeight:600 }}>No servers yet</p>
-          <p style={{ color:"#64748b", fontSize:"13px", marginTop:"6px" }}>Click + Add Server to get started</p>
-        </div>
-      ) : (
-        <div style={{ display:"flex", flexDirection:"column", gap:"12px" }}>
-          {servers.map(server => (
-            <div key={server.id} className="card" style={{ padding:"20px 24px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div>
-                <div style={{ fontWeight:700, color:"#f1f5f9", fontSize:"16px", marginBottom:"4px" }}>{server.name}</div>
-                <div style={{ fontSize:"13px", color:"#64748b" }}>{server.ip_address} · {server.environment} · {server.status}</div>
-                {server.description && <div style={{ fontSize:"12px", color:"#475569", marginTop:"4px" }}>{server.description}</div>}
-              </div>
-              <div style={{ display:"flex", gap:"8px" }}>
-                {isAdmin && <button onClick={() => openEditForm(server)} style={{ background:"#334155", color:"#e2e8f0", border:"none", padding:"8px 16px", borderRadius:"8px", fontSize:"13px", cursor:"pointer" }}>Edit</button>}
-                {isAdmin && <button onClick={() => handleDelete(server.id)} style={{ background:"rgba(248,113,113,0.1)", color:"#f87171", border:"1px solid rgba(248,113,113,0.3)", padding:"8px 16px", borderRadius:"8px", fontSize:"13px", cursor:"pointer" }}>Delete</button>}
-              </div>
-            </div>
-          ))}
+      {actionMsg && (
+        <div style={{ padding: "12px 16px", borderRadius: "8px", marginBottom: "20px", background: actionMsg.ok ? "rgba(34,197,94,0.12)" : "rgba(248,113,113,0.12)", border: actionMsg.ok ? "1px solid rgba(34,197,94,0.3)" : "1px solid rgba(248,113,113,0.3)", color: actionMsg.ok ? "#4ade80" : "#f87171", fontSize: "13px", fontWeight: 600 }}>
+          {actionMsg.msg}
+          <button onClick={() => setActionMsg(null)} style={{ float: "right", background: "none", border: "none", color: "inherit", cursor: "pointer", fontWeight: 800 }}>✕</button>
         </div>
       )}
 
+      {/* Filter Tabs & Search */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "8px" }}>
+          {["all", "production", "staging", "development", "testing"].map((env) => (
+            <button key={env} onClick={() => setEnvFilter(env)} style={{
+              padding: "8px 16px", borderRadius: "20px", border: "none", fontWeight: 700, fontSize: "12px",
+              cursor: "pointer", textTransform: "capitalize",
+              background: envFilter === env ? "#38bdf8" : "#111c2e",
+              color: envFilter === env ? "#080e1a" : "#94a3b8"
+            }}>
+              {env}
+            </button>
+          ))}
+        </div>
+        <input type="text" placeholder="Search by server name or IP..." value={search} onChange={(e) => setSearch(e.target.value)} className="input-base" style={{ width: "280px" }} />
+      </div>
+
+      {loading ? (
+        <div style={{ color: "#94a3b8" }}>Loading server fleet...</div>
+      ) : filteredServers.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "48px" }}>
+          <p style={{ color: "#94a3b8", fontSize: "15px" }}>No servers found.</p>
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div className="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Server Name</th>
+                  <th>IP Address</th>
+                  <th>Environment</th>
+                  <th>Source</th>
+                  <th>CPU / RAM / Disk</th>
+                  <th>Projects</th>
+                  <th>Risk</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredServers.map((s) => (
+                  <tr key={s.id} onClick={() => navigate(`/servers/${s.id}`)} style={{ cursor: "pointer" }}>
+                    <td style={{ fontWeight: 800, color: "#f1f5f9" }}>{s.name}</td>
+                    <td style={{ fontFamily: "monospace", color: "#38bdf8" }}>{s.ip_address}</td>
+                    <td>
+                      <span className={s.environment === "production" ? "badge badge-red" : "badge badge-amber"}>
+                        {s.environment}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={s.data_source === "ssh" ? "badge badge-green" : "badge badge-blue"}>
+                        {s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: "12px", color: "#94a3b8" }}>
+                        {s.cpu_usage || 0}% / {s.memory_usage || 0}% / {s.disk_usage || 0}%
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 800, color: "#f1f5f9" }}>{s.projects_count ?? 0}</td>
+                    <td style={{ fontWeight: 800, color: (s.risk_score || 0) >= 60 ? "#f87171" : "#4ade80" }}>
+                      {s.risk_score || 0}
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button onClick={(e) => handleScanSingle(s.id, s.name, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px" }}>
+                          ⚡ Scan
+                        </button>
+                        <button onClick={(e) => handleOpenEdit(s, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px", background: "rgba(139,92,246,0.15)", color: "#c084fc", border: "1px solid rgba(139,92,246,0.3)" }}>
+                          ✏️ Credentials
+                        </button>
+                        <button onClick={(e) => handleDelete(s.id, s.name, e)} className="btn-danger" style={{ padding: "4px 10px", fontSize: "11px" }}>
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Server Modal */}
       {showForm && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
-          <div style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:"16px", padding:"32px", width:"100%", maxWidth:"480px", maxHeight:"85vh", overflowY:"auto" }}>
-            <h2 style={{ color:"#f1f5f9", fontSize:"18px", fontWeight:800, marginBottom:"24px" }}>{editServer ? "Edit Server" : "Add Server"}</h2>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div className="card" style={{ width: "100%", maxWidth: "500px", background: "#0d1524" }}>
+            <h3 style={{ fontSize: "18px", fontWeight: 800, marginBottom: "20px", color: "#f1f5f9" }}>
+              {editId ? `Edit Credentials for ${form.name}` : "Add New Infrastructure Server"}
+            </h3>
             <form onSubmit={handleSubmit}>
-              <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>SERVER NAME</label>
-                <input style={inp} value={form.name} onChange={e => setForm({...form, name:e.target.value})} placeholder="Production Server" required />
+              <div style={{ marginBottom: "14px" }}>
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>SERVER NAME</label>
+                <input className="input-base" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="prod-web-01" />
               </div>
-              <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>IP ADDRESS</label>
-                <input style={inp} value={form.ip_address} onChange={e => setForm({...form, ip_address:e.target.value})} placeholder="192.168.1.10" required />
+              <div style={{ marginBottom: "14px" }}>
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>IP ADDRESS</label>
+                <input className="input-base" required value={form.ip_address} onChange={(e) => setForm({ ...form, ip_address: e.target.value })} placeholder="192.168.1.100" />
               </div>
-              <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>DESCRIPTION</label>
-                <input style={inp} value={form.description} onChange={e => setForm({...form, description:e.target.value})} placeholder="Main application server" />
+              <div style={{ marginBottom: "14px" }}>
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>SSH USERNAME</label>
+                <input className="input-base" value={form.ssh_username} onChange={(e) => setForm({ ...form, ssh_username: e.target.value })} placeholder="root" />
               </div>
-              <div style={{ marginBottom:"16px" }}>
-                
-              <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>SSH USERNAME</label>
-                <input
-                  style={inp}
-                  value={form.ssh_username}
-                  onChange={e => setForm({ ...form, ssh_username: e.target.value })}
-                  placeholder="root"
-                />
+              <div style={{ marginBottom: "14px" }}>
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>SSH PASSWORD (encrypted in DB)</label>
+                <input className="input-base" type="password" value={form.ssh_password} onChange={(e) => setForm({ ...form, ssh_password: e.target.value })} placeholder="Leave blank to keep existing password" />
               </div>
-
-              <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>SSH PASSWORD (optional)</label>
-                <input
-                  style={inp}
-                  type="password"
-                  value={form.ssh_password}
-                  onChange={e => setForm({ ...form, ssh_password: e.target.value })}
-                  placeholder="SSH password"
-                />
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>WHM HOST & API TOKEN (optional)</label>
+                <input className="input-base" value={form.whm_host} onChange={(e) => setForm({ ...form, whm_host: e.target.value })} placeholder="whm.example.com or IP" style={{ marginBottom: "8px" }} />
+                <input className="input-base" type="password" value={form.whm_token} onChange={(e) => setForm({ ...form, whm_token: e.target.value })} placeholder="WHM API Token (leave blank to keep existing)" />
               </div>
-
-              <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>SSH PORT (optional)</label>
-                <input
-                  style={inp}
-                  value={form.ssh_port}
-                  onChange={e => setForm({ ...form, ssh_port: e.target.value })}
-                  placeholder="22"
-                />
-              </div>
-
-              <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>WHM HOST</label>
-                <input
-                  style={inp}
-                  value={form.whm_host}
-                  onChange={e => setForm({ ...form, whm_host: e.target.value })}
-                  placeholder="013237.vps-10.com"
-                />
-              </div>
-
-              <div style={{ marginBottom:"16px" }}>
-                <label style={lbl}>WHM API TOKEN</label>
-                <input
-                  style={inp}
-                  type="password"
-                  value={form.whm_token}
-                  onChange={e => setForm({ ...form, whm_token: e.target.value })}
-                  placeholder="Paste WHM API token"
-                />
-              </div>
-
-<label style={lbl}>ENVIRONMENT</label>
-                <select style={inp} value={form.environment} onChange={e => setForm({...form, environment:e.target.value})}>
-                  <option value="production">Production</option>
-                  <option value="staging">Staging</option>
-                  <option value="development">Development</option>
-                </select>
-              </div>
-              <div style={{ marginBottom:"24px" }}>
-                <label style={lbl}>STATUS</label>
-                <select style={inp} value={form.status} onChange={e => setForm({...form, status:e.target.value})}>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="unreachable">Unreachable</option>
-                </select>
-              </div>
-              <div style={{ display:"flex", gap:"12px", justifyContent:"flex-end" }}>
-                <button type="button" onClick={() => setShowForm(false)} style={{ background:"transparent", color:"#94a3b8", border:"1px solid #334155", padding:"10px 20px", borderRadius:"8px", cursor:"pointer" }}>Cancel</button>
-                <button type="submit" disabled={loading} style={{ background:"#38bdf8", color:"#0f172a", border:"none", padding:"10px 24px", borderRadius:"8px", fontWeight:700, cursor:"pointer" }}>{loading ? "Saving..." : "Save"}</button>
+              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="btn-secondary">Cancel</button>
+                <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : editId ? "Update & Scan" : "Add Server & Scan"}</button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }
