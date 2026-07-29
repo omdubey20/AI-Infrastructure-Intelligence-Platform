@@ -41,13 +41,16 @@ export default function Projects() {
 
   useEffect(() => {
     fetchServers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     fetchProjects();
     const interval = setInterval(fetchProjects, 15000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, search, serverId]);
+
 
   const handleDelete = async (id, name) => {
     if (!window.confirm(`Delete project '${name}'?`)) return;

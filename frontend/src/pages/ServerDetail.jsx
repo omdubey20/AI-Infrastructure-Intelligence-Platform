@@ -27,7 +27,9 @@ export default function ServerDetail() {
     fetchServer();
     const interval = setInterval(fetchServer, 5000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
 
   const handleScan = async () => {
     setScanning(true);
