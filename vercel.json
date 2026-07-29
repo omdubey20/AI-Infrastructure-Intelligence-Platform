@@ -1,13 +1,4 @@
 {
-  "services": {
-    "frontend": {
-      "root": "frontend",
-      "framework": "create-react-app"
-    },
-    "backend": {
-      "root": "backend"
-    }
-  },
   "builds": [
     {
       "src": "frontend/package.json",
@@ -17,58 +8,58 @@
       }
     },
     {
-      "src": "backend/main.py",
+      "src": "api/index.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/auth/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/servers/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/projects/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/cleanup/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/stats/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/discovery/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/whm/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/ml/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/ai/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/audit/(.*)",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/health",
-      "dest": "backend/main.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/static/(.*)",
