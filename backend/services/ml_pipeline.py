@@ -22,7 +22,6 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
-
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "risk_model.pkl")
 EXPERIMENT_NAME = "Server_Risk_Scoring_Model"
 
@@ -67,7 +66,7 @@ def generate_training_dataset(n_samples: int = 1200, random_seed: int = 42) -> p
 
 def train_and_evaluate_pipeline() -> dict:
     """
-    Executes end-to-end ML pipeline with MLflow tracking (when available).
+    Executes end-to-end ML pipeline with MLflow tracking (if available).
     """
     if HAS_MLFLOW:
         try:
@@ -85,6 +84,7 @@ def train_and_evaluate_pipeline() -> dict:
     max_depth = 10
     random_state = 42
 
+    # Use XGBoost if available, else RandomForest
     try:
         from xgboost import XGBRegressor
         model = XGBRegressor(
@@ -105,12 +105,14 @@ def train_and_evaluate_pipeline() -> dict:
         model.fit(X_train, y_train)
         model_name = "RandomForest"
 
+    # Evaluation
     predictions = model.predict(X_test)
     mse = mean_squared_error(y_test, predictions)
     rmse = np.sqrt(mse)
     mae = mean_absolute_error(y_test, predictions)
     r2 = r2_score(y_test, predictions)
 
+    # Feature Importance calculation
     if hasattr(model, "feature_importances_"):
         importances = dict(zip(X.columns, [round(float(v), 4) for v in model.feature_importances_]))
     else:
@@ -124,42 +126,38 @@ def train_and_evaluate_pipeline() -> dict:
                 mlflow.log_param("model_type", model_name)
                 mlflow.log_metric("rmse", rmse)
                 mlflow.log_metric("r2_score", r2)
+                try:
+                    mlflow.sklearn.log_model(model, name="model")
+                except Exception:
+                    pass
         except Exception:
             pass
 
+    # Save trained pickle model for risk_engine.py
+    with open(MODEL_PATH, "wb") as f:
+        pickle.dump(model, f)
 
-        if HAS_MLFLOW:
-            try:
-                mlflow.sklearn.log_model(model, name="model")
-            except Exception as e:
-                logger.warning(f"MLflow model log notice: {e}")
+    # Reload risk_engine cached model
+    try:
+        from services import risk_engine
+        risk_engine._load_model()
+    except Exception:
+        pass
 
-
-        # Save trained pickle model for risk_engine.py
-        with open(MODEL_PATH, "wb") as f:
-            pickle.dump(model, f)
-
-        # Reload risk_engine cached model
-        try:
-            from services import risk_engine
-            risk_engine._load_model()
-        except Exception:
-            pass
-
-        return {
-            "status": "success",
-            "run_id": run_id,
-            "experiment_name": EXPERIMENT_NAME,
-            "model_type": model_name,
-            "metrics": {
-                "rmse": round(float(rmse), 4),
-                "mae": round(float(mae), 4),
-                "r2_score": round(float(r2), 4)
-            },
-            "feature_importance": importances,
-            "model_path": MODEL_PATH,
-            "drift_detected": False
-        }
+    return {
+        "status": "success",
+        "run_id": run_id,
+        "experiment_name": EXPERIMENT_NAME,
+        "model_type": model_name,
+        "metrics": {
+            "rmse": round(float(rmse), 4),
+            "mae": round(float(mae), 4),
+            "r2_score": round(float(r2), 4)
+        },
+        "feature_importance": importances,
+        "model_path": MODEL_PATH,
+        "drift_detected": False
+    }
 
 
 if __name__ == "__main__":
