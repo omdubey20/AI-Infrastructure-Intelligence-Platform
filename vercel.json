@@ -1,0 +1,74 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "build"
+      }
+    },
+    {
+      "src": "backend/main.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/auth/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/servers/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/projects/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/cleanup/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/stats/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/discovery/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/whm/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/ml/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/ai/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/audit/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/health",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/static/(.*)",
+      "dest": "frontend/build/static/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "frontend/build/index.html"
+    }
+  ]
+}
