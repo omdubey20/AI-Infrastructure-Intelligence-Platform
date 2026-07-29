@@ -9,13 +9,19 @@ import json
 import logging
 import numpy as np
 import pandas as pd
-import mlflow
-import mlflow.sklearn
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
+try:
+    import mlflow
+    import mlflow.sklearn
+    HAS_MLFLOW = True
+except Exception:
+    HAS_MLFLOW = False
+
 logger = logging.getLogger(__name__)
+
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "risk_model.pkl")
 EXPERIMENT_NAME = "Server_Risk_Scoring_Model"
@@ -61,9 +67,13 @@ def generate_training_dataset(n_samples: int = 1200, random_seed: int = 42) -> p
 
 def train_and_evaluate_pipeline() -> dict:
     """
-    Executes end-to-end ML pipeline with MLflow tracking.
+    Executes end-to-end ML pipeline with MLflow tracking (when available).
     """
-    mlflow.set_experiment(EXPERIMENT_NAME)
+    if HAS_MLFLOW:
+        try:
+            mlflow.set_experiment(EXPERIMENT_NAME)
+        except Exception:
+            pass
 
     df = generate_training_dataset()
     X = df[["cpu", "memory", "disk", "uptime", "errors"]]
@@ -75,58 +85,55 @@ def train_and_evaluate_pipeline() -> dict:
     max_depth = 10
     random_state = 42
 
-    with mlflow.start_run() as run:
-        run_id = run.info.run_id
+    try:
+        from xgboost import XGBRegressor
+        model = XGBRegressor(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            random_state=random_state,
+            learning_rate=0.08
+        )
+        model.fit(X_train, y_train)
+        model_name = "XGBoost"
+    except Exception as e:
+        logger.info(f"XGBoost unavailable ({e}), using RandomForestRegressor.")
+        model = RandomForestRegressor(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            random_state=random_state
+        )
+        model.fit(X_train, y_train)
+        model_name = "RandomForest"
 
-        # Use XGBoost if available, else RandomForest
+    predictions = model.predict(X_test)
+    mse = mean_squared_error(y_test, predictions)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test, predictions)
+    r2 = r2_score(y_test, predictions)
+
+    if hasattr(model, "feature_importances_"):
+        importances = dict(zip(X.columns, [round(float(v), 4) for v in model.feature_importances_]))
+    else:
+        importances = {"cpu": 0.35, "memory": 0.30, "disk": 0.25, "errors": 0.08, "uptime": 0.02}
+
+    run_id = "serverless_run"
+    if HAS_MLFLOW:
         try:
-            from xgboost import XGBRegressor
-            model = XGBRegressor(
-                n_estimators=n_estimators,
-                max_depth=max_depth,
-                random_state=random_state,
-                learning_rate=0.08
-            )
-            model.fit(X_train, y_train)
-            model_name = "XGBoost"
-        except Exception as e:
-            logger.info(f"XGBoost unavailable ({e}), using RandomForestRegressor.")
-            model = RandomForestRegressor(
-                n_estimators=n_estimators,
-                max_depth=max_depth,
-                random_state=random_state
-            )
-            model.fit(X_train, y_train)
-            model_name = "RandomForest"
+            with mlflow.start_run() as run:
+                run_id = run.info.run_id
+                mlflow.log_param("model_type", model_name)
+                mlflow.log_metric("rmse", rmse)
+                mlflow.log_metric("r2_score", r2)
+        except Exception:
+            pass
 
-        # Evaluation
-        predictions = model.predict(X_test)
-        mse = mean_squared_error(y_test, predictions)
-        rmse = np.sqrt(mse)
-        mae = mean_absolute_error(y_test, predictions)
-        r2 = r2_score(y_test, predictions)
 
-        # Feature Importance calculation
-        if hasattr(model, "feature_importances_"):
-            importances = dict(zip(X.columns, [round(float(v), 4) for v in model.feature_importances_]))
-        else:
-            importances = {"cpu": 0.35, "memory": 0.30, "disk": 0.25, "errors": 0.08, "uptime": 0.02}
+        if HAS_MLFLOW:
+            try:
+                mlflow.sklearn.log_model(model, name="model")
+            except Exception as e:
+                logger.warning(f"MLflow model log notice: {e}")
 
-        # Log MLflow params & metrics
-        mlflow.log_param("model_type", model_name)
-        mlflow.log_param("n_estimators", n_estimators)
-        mlflow.log_param("max_depth", max_depth)
-        mlflow.log_param("dataset_samples", len(df))
-
-        mlflow.log_metric("mse", mse)
-        mlflow.log_metric("rmse", rmse)
-        mlflow.log_metric("mae", mae)
-        mlflow.log_metric("r2_score", r2)
-
-        try:
-            mlflow.sklearn.log_model(model, name="model")
-        except Exception as e:
-            logger.warning(f"MLflow model log notice: {e}")
 
         # Save trained pickle model for risk_engine.py
         with open(MODEL_PATH, "wb") as f:
