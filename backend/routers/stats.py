@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Server, ProjectDiscovery
 from services.risk_engine import calculate_server_risk
+from routers.auth import get_current_user
 
 router = APIRouter(prefix="/stats", tags=["Stats"])
 
@@ -32,7 +33,7 @@ def _generate_server_insights(s) -> list:
 
 
 @router.get("/dashboard")
-def dashboard_stats(db: Session = Depends(get_db)):
+def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     total_servers = db.query(Server).count()
     total_projects = db.query(ProjectDiscovery).count()
     servers = db.query(Server).all()

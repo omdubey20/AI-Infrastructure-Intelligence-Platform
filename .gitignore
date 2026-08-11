@@ -13,9 +13,21 @@ mlruns/
 backend/mlflow.db
 backend/mlruns/
 
+# ML model artifacts (do not commit binaries to git)
+*.pkl
+backend/services/risk_model.pkl
+backend/services/risk_model_meta.json
+
 # Node
 frontend/node_modules/
 frontend/build/
+node_modules/
 
 # Mac
 .DS_Store
+
+# Editor artefacts
+*.save
+*.swp
+*.swo
+*~

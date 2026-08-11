@@ -2,6 +2,7 @@
 Servers Router
 Provides CRUD management, credentials update, connection testing, discovery scans, and server metrics.
 """
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -13,6 +14,8 @@ from routers.auth import require_role, get_current_user
 from routers.audit import create_audit_entry
 from services.credential_encryption import encrypt_credential, decrypt_credential
 from services.server_scanner import scan_server_projects
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/servers", tags=["Servers"])
 
@@ -60,9 +63,17 @@ def list_servers(
     current_user=Depends(get_current_user)
 ):
     servers = db.query(Server).all()
+
+    # Single bulk query for all project counts — eliminates N+1
+    from sqlalchemy import func
+    counts = dict(
+        db.query(ProjectDiscovery.server_id, func.count(ProjectDiscovery.id))
+        .group_by(ProjectDiscovery.server_id)
+        .all()
+    )
+
     results = []
     for s in servers:
-        p_count = db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == s.id).count()
         results.append({
             "id": s.id,
             "name": s.name,
@@ -77,7 +88,7 @@ def list_servers(
             "risk_score": s.risk_score or 0,
             "data_source": s.data_source or "estimated",
             "last_scanned_at": s.last_scanned_at,
-            "projects_count": p_count,
+            "projects_count": counts.get(s.id, 0),
             "has_ssh_creds": bool(s.ssh_password or s.ssh_private_key),
             "has_whm_creds": bool(s.whm_token)
         })

@@ -80,7 +80,7 @@ export default function Intelligence() {
           </p>
           <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Intelligence Platform</h1>
           <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-            MLflow experiment tracking, SHAP feature importance, and automated AI risk recommendations
+            MLflow experiment tracking, model feature importance, and automated AI risk recommendations
           </p>
         </div>
 
@@ -127,7 +127,7 @@ export default function Intelligence() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Explainability</span>
-              <span style={{ fontWeight: 700, color: "#4ade80" }}>SHAP Value Analysis</span>
+              <span style={{ fontWeight: 700, color: "#4ade80" }}>Model Feature Importance</span>
             </div>
           </div>
         </div>
@@ -135,7 +135,7 @@ export default function Intelligence() {
         {/* Feature Importance */}
         <div className="card">
           <h3 style={{ fontSize: "13px", fontWeight: 800, color: "#38bdf8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px" }}>
-            SHAP Feature Importance Weights
+            Model Feature Importance Weights
           </h3>
           {featureImportance.length === 0 ? (
             <p style={{ color: "#64748b", fontSize: "13px" }}>Click "Retrain MLflow Pipeline" to generate feature importance weights.</p>

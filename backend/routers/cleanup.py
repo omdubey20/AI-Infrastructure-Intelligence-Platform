@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import models
 from database import get_db
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_role
 from routers.audit import create_audit_entry
 
 router = APIRouter(prefix="/cleanup", tags=["Cleanup"])
@@ -68,7 +68,7 @@ def cleanup_report(db: Session = Depends(get_db), current_user=Depends(get_curre
 
 
 @router.post("/approve/{project_id}")
-def approve_cleanup(project_id: int, action: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def approve_cleanup(project_id: int, action: str, db: Session = Depends(get_db), current_user=Depends(require_role(["admin", "devops"]))):
     project = db.query(models.ProjectDiscovery).filter(models.ProjectDiscovery.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")

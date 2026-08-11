@@ -1,6 +1,6 @@
 """
 Dashboard Specification Router — Section 6 API Standard Implementation
-Implements all required API endpoints:
+All endpoints require authentication.
 - GET /api/dashboard/summary
 - GET /api/accounts
 - GET /api/sites
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 import models
+from routers.auth import get_current_user, require_role
 from services.server_scanner import scan_server_projects
 from services.duplicate_detector import detect_duplicates
 from services.inactive_detector import detect_inactive_projects
@@ -32,7 +33,7 @@ def _safe_float_val(val):
 
 
 @router.get("/dashboard/summary")
-def get_dashboard_summary(db: Session = Depends(get_db)):
+def get_dashboard_summary(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Summary counts: servers online/offline, accounts active/suspended, sites up/down, open alerts."""
     servers = db.query(models.Server).all()
     discoveries = db.query(models.ProjectDiscovery).all()
@@ -65,8 +66,9 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
 @router.get("/accounts")
 def get_accounts(
     server_id: Optional[int] = Query(None),
-    status: Optional[str] = Query(None),  # active or suspended
-    db: Session = Depends(get_db)
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Filterable cPanel account list per server."""
     query = db.query(models.ProjectDiscovery)
@@ -99,8 +101,9 @@ def get_accounts(
 @router.get("/sites")
 def get_sites(
     server_id: Optional[int] = Query(None),
-    status: Optional[str] = Query(None),  # down or up
-    db: Session = Depends(get_db)
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Filterable site health check list."""
     query = db.query(models.ProjectDiscovery)
@@ -120,10 +123,10 @@ def get_sites(
             "server_id": s.server_id,
             "url": f"https://{s.domain}" if s.domain else f"http://{s.project_name}",
             "domain": s.domain or s.project_name,
-            "framework": s.framework or "php",
+            "framework": s.framework or "unknown",
             "http_status": 503 if s.is_inactive else (200 if s.is_live else 404),
-            "response_ms": 120 if s.is_live and not s.is_inactive else 0,
-            "ssl_expires_at": (datetime.utcnow() + timedelta(days=s.ssl_expiry_days or 60)).date().isoformat() if s.has_ssl else None,
+            "response_ms": None,  # Not measured — explicitly null instead of fake value
+            "ssl_expires_at": (datetime.utcnow() + timedelta(days=s.ssl_expiry_days)).date().isoformat() if s.has_ssl and s.ssl_expiry_days else None,
             "is_up": bool(s.is_live and not s.is_inactive),
             "last_checked_at": s.last_synced_at.isoformat() if s.last_synced_at else datetime.utcnow().isoformat(),
         }
@@ -134,7 +137,8 @@ def get_sites(
 @router.get("/alerts")
 def get_alerts(
     resolved: Optional[bool] = Query(False),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Filterable alerts list."""
     query = db.query(models.Alert)
@@ -178,7 +182,7 @@ def get_alerts(
 
 
 @router.patch("/alerts/{alert_id}/resolve")
-def resolve_alert(alert_id: int, db: Session = Depends(get_db)):
+def resolve_alert(alert_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Mark an alert resolved."""
     alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
     if alert:
@@ -198,7 +202,11 @@ def resolve_alert(alert_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/servers/{server_id}/check-now")
-def server_check_now(server_id: int, db: Session = Depends(get_db)):
+def server_check_now(
+    server_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(["admin", "devops"])),
+):
     """Force an immediate poll & health check bypassing schedule."""
     server = db.query(models.Server).filter(models.Server.id == server_id).first()
     if not server:
@@ -225,7 +233,8 @@ def get_server_history(
     server_id: int,
     metric: str = Query("loadavg"),
     time_span: str = Query("24h", alias="range"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Time-series metric data for charts."""
     snapshots = db.query(models.HealthSnapshot).filter(
@@ -240,22 +249,19 @@ def get_server_history(
                 "metric": s.metric,
                 "value": _safe_float_val(s.value),
                 "recorded_at": s.recorded_at.isoformat(),
+                "data_source": "live",
             }
             for s in snapshots
         ]
 
-    # Dynamic fallback sparkline generation if no snapshots exist yet
+    # No snapshots — return empty with metadata explaining why
     server = db.query(models.Server).filter(models.Server.id == server_id).first()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    now = datetime.utcnow()
-    base_val = getattr(server, "load_avg_1", 1.2) or 1.2
-    return [
-        {
-            "metric": metric,
-            "value": round(max(0.1, base_val + (i % 3 - 1) * 0.15), 2),
-            "recorded_at": (now - timedelta(hours=24 - i)).isoformat(),
-        }
-        for i in [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
-    ]
+    return {
+        "data": [],
+        "message": "No historical snapshots available yet. Data will populate after the next scan cycle.",
+        "server_id": server_id,
+        "metric": metric,
+    }

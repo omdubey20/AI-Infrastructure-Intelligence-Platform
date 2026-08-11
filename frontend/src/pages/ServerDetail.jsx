@@ -35,7 +35,7 @@ export default function ServerDetail() {
     setScanning(true);
     setActionMsg(null);
     try {
-      await api.post(`/servers/${id}/discover`);
+      await api.post(`/servers/${id}/scan`);
       setActionMsg({ ok: true, msg: `Discovery scan completed for ${server?.name}` });
       fetchServer();
     } catch (e) {

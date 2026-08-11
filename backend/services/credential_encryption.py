@@ -2,26 +2,34 @@
 Credential Encryption Service
 Uses Fernet symmetric encryption (AES-128-CBC + HMAC-SHA256)
 to encrypt SSH passwords, SSH private keys, and WHM tokens before DB storage.
+
+IMPORTANT: Set FERNET_KEY in your .env file.
+Generate a new key with:
+    python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 """
 import os
 import base64
+import logging
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
 load_dotenv()
 
-FALLBACK_KEY = b"lh_hTe9jCBEwRaR-FpbpZ5MauGEJNw9KoAD6jZZSjIw="
+logger = logging.getLogger(__name__)
 
 
 def _get_fernet() -> Fernet:
-    """Get Fernet key from environment or fallback."""
+    """Get Fernet key from environment variable. Raises if not configured."""
     key = os.getenv("FERNET_KEY")
-    if key:
-        try:
-            return Fernet(key.encode() if isinstance(key, str) else key)
-        except Exception:
-            pass
-    return Fernet(FALLBACK_KEY)
+    if not key:
+        raise RuntimeError(
+            "FERNET_KEY environment variable is not set. "
+            "Generate one with: python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+    try:
+        return Fernet(key.encode() if isinstance(key, str) else key)
+    except Exception as e:
+        raise RuntimeError(f"FERNET_KEY is invalid: {e}") from e
 
 
 _fernet: Fernet = None
@@ -35,13 +43,14 @@ def _fernet_instance() -> Fernet:
 
 
 def encrypt_credential(value: str) -> str:
-    """Encrypt a credential string. Returns base64-encoded ciphertext."""
+    """Encrypt a credential string. Returns Fernet ciphertext."""
     if not value:
         return value
     try:
         f = _fernet_instance()
         return f.encrypt(value.encode("utf-8")).decode("utf-8")
-    except Exception:
+    except Exception as e:
+        logger.error(f"Credential encryption failed: {e}")
         return value
 
 
@@ -52,14 +61,10 @@ def decrypt_credential(value: str) -> str:
     try:
         f = _fernet_instance()
         return f.decrypt(value.encode("utf-8")).decode("utf-8")
-    except Exception:
-        # Fallback to secondary Fernet instance if key was rotated
-        try:
-            f_fallback = Fernet(FALLBACK_KEY)
-            return f_fallback.decrypt(value.encode("utf-8")).decode("utf-8")
-        except Exception:
-            # If decryption fails, value is returned as-is (plaintext)
-            return value
+    except Exception as e:
+        # If decryption fails, the value may already be plaintext (legacy)
+        logger.debug(f"Credential decryption notice (may be plaintext): {e}")
+        return value
 
 
 def is_encrypted(value: str) -> bool:

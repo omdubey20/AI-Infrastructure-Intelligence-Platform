@@ -2,11 +2,11 @@
 Comprehensive Server Scanner
 - SSH-based deep discovery: system info, metrics, services, projects
 - WHM/cPanel scan: 1 cPanel Account = 1 Project Discovery (1-to-1 mapping)
-- Dynamic Scan Engine for NEW Servers:
-    * WHM API Mode: Dynamically queries listaccts, extracts cPanel accounts, suspended status (acc.get("suspended")), domain, owner, disk usage.
+- Dynamic Scan Engine:
+    * WHM API Mode: Dynamically queries listaccts, extracts cPanel accounts, suspended status, domain, owner, disk usage.
     * SSH Mode: Connects via Paramiko SSH, inspects /home, /var/www, /srv for real web projects.
-    * Fallback Engine: Preset profile matching for known benchmark Servers A, B, C.
 - Zero-Accumulation Guarantee: Always replaces stale discovery records cleanly per server on rescan.
+- NO fallback fake data: If neither SSH nor WHM connects, the scan reports failure honestly.
 """
 import io
 import json
@@ -43,75 +43,6 @@ SKIP_PREFIXES = (
     "cpcontacts.", "autodiscover.", "ftp.", "whm.", "cpsess",
 )
 
-INACTIVE_DOMAINS = set()
-
-# Exact 168 unique cPanel accounts list for Server C
-SERVER_C_ACCOUNT_DOMAINS = [
-    ('university', 'universityofisleofman.org'), ('workingwomenawar', 'workingwomenawards.com'), ('marcinfitness', 'marcinfitness.com'),
-    ('speecoorg', 'speeco.org.uk'), ('golfteetime', 'golfteetime.co.uk'), ('communicare', 'communicareinsouthampton.org.uk'),
-    ('asklrc', 'asklrc.co.uk'), ('umamistreetfoods', 'umamistreetfoods.co.uk'), ('thejamesshoe', 'thejamesshoe.com'),
-    ('chreadmin', 'chre-uk.com'), ('magdisco', 'magdis.co.uk'), ('idunow', 'idunow.com'),
-    ('venturecreations', 'venturecreations.co.uk'), ('officefurniture', 'officefurnituresolutions.co.uk'), ('geecontech', 'geecontechnology.com'),
-    ('studiogeecon', 'studio.geeconlearnings.co.in'), ('santoshkumar', 'santoshkumar.live'), ('isleofmanexpo', 'isleofmanexpo.com'),
-    ('bushidodoubler', 'bushidodoubler.org'), ('completesales', 'completesalesexpo.com'), ('facecouk', 'facewebinar.co.uk'),
-    ('thepublishinghub', 'thepublishinghub.co.uk'), ('restaurantsonweb', 'restaurantsonweb.com'), ('odootechnology', 'odootechnology.com'),
-    ('foodhealthlife', 'foodhealthandlifestyleexpo.com'), ('futurefacetech', 'futurefacetech.com'), ('redcellpathlab', 'redcellpathlab.com'),
-    ('south', 'southamptonbusinessawards.com'), ('event24seven', 'event24seven.com'), ('southamptonbusin', 'southamptonbusinessexpo.co.uk'),
-    ('dubaiglobalbusin', 'dubaiglobalbusinessexpo.com'), ('internationalsho', 'internationalpropertycircleshow.com'), ('startupcreationo', 'startupcreation.org'),
-    ('thisiswestsid', 'thisiswestside.com'), ('omkarapaneer', 'omkarapaneer.com'), ('bournemouthbusin', 'bournemouthbusinessleadersaward.com'),
-    ('thecodclub', 'thecodclub.uk'), ('himachalholidays', 'himachalholidays.co.uk'), ('greenvalleyinfin', 'greenvalleyinfinity.org'),
-    ('mweppartners', 'mweppartners.com'), ('audiencecreation', 'audiencecreation.co.uk'), ('bluesapphirehote', 'bluesapphirehotel.co.uk'),
-    ('saharasecurityse', 'saharasecurityservices.com'), ('nagendramishra', 'nagendramishra.co.uk'), ('b2bexpoorg', 'b2bexpo.org'),
-    ('rowadminmydevsys', 'rowadmin.mydevsystems.com'), ('villagemags', 'villagemags.co.uk'), ('ashfordmotors', 'ashfordmotors.com'),
-    ('visionstovictory', 'visionstovictory.com'), ('bestbritishbusin', 'bestbritishbusinessawards.com'), ('uaeglobalshow', 'uaeglobalbusinessshow.com'),
-    ('visionscreation', 'visionscreation.com'), ('hybridexpo', 'hybridworkingexpo.com'), ('unity101events', 'unity101events.org'),
-    ('floracoiffure', 'floracoiffure.com'), ('b2bgrowthexpo', 'b2bgrowthexpo.com'), ('smecreationco', 'smecreation.co.uk'),
-    ('supercleanings', 'supercleanings.co.uk'), ('ideacreation', 'ideacreation.org'), ('gmcfinance', 'gmcfinance.co.uk'),
-    ('crmtillu', 'crm.tillu.co.uk'), ('debunkingsuccess', 'debunkingsuccessmyths.com'), ('venturetraining', 'venturecreationtraining.co.uk'),
-    ('mishi', 'mishi.london'), ('rootalrahmah', 'alrahmahcd.org'), ('businessreviews', 'businessreviewsonweb.com'),
-    ('cardiffbusinesse', 'cardiffbusinessexpo.com'), ('unityshiftmydev', 'unityshift.mydevsystems.com'), ('omisspice', 'omisspice.com'),
-    ('geeconweb', 'geeconweb.geeconglobal.com'), ('theventurecrea', 'theventurecreation.com'), ('crm360degree', 'crm360degree.com'),
-    ('modestoexhibitio', 'modestoexhibitions.com'), ('oblecorg', 'oblec.org.uk'), ('microcreationco', 'microcreation.co.uk'),
-    ('miltonkeynesbusi', 'miltonkeynesbusinessexpo.com'), ('businesscreation', 'businesscreations.co.uk'), ('instacreationco', 'instacreation.co.uk'),
-    ('londonbusinessaw', 'londonbusinessaward.com'), ('hampshirebusines', 'hampshirebusinessaward.com'), ('venturecreationm', 'venturecreationmastermind.com'),
-    ('fototrendz', 'fototrendz.co.uk'), ('staffco', '101staff.co.uk'), ('southamptoncurry', 'southamptoncurryexpress.com'),
-    ('carscrapwrays', 'carscrapwraysbury.com'), ('digitalageexpoco', 'digitalageexpo.co.uk'), ('admin4max', 'maxcleaningenviro.com'),
-    ('frontiertechxorg', 'frontiertechx.org.uk'), ('virtualnetwork', 'virtualnetworkings.com'), ('taxforensic', 'taxforensic.com'),
-    ('wishpersofwisdom', 'wishpersofwisdom.com'), ('theteamcanada', 'theteamcanada.com'), ('kjurislaw', 'kjurislaw.com'),
-    ('factoryfreshuk', 'thefactoryfresh.co.uk'), ('acharilounge', 'acharilounge.com'), ('southhuptonbusin', 'southamptonbusinessexpo.com'),
-    ('hospitalityshow', 'internationalhospitalityshow.com'), ('linearproperties', 'linear-properties.com'), ('unity101', 'unity101.org'),
-    ('syncmy', 'syncmydocs.com'), ('prolashes', '3dprolashes.com'), ('rowcp', 'rowcp.mydevsystems.com'),
-    ('jamesseilo', 'jamesseilo.com'), ('uaeglobalbusines', 'uaeglobalbusinessexpo.com'), ('bannerpressco', 'bannerpress.co.uk'),
-    ('tideandseekadmin', 'tideandseektravel.com'), ('imovelondon', 'imovelondon.uk'), ('gvitrainingadmin', 'gvitraininginstitute.com'),
-    ('thecurryclub', 'thecurryclub.uk'), ('narrativenetwork', 'narrativenetworkfilms.com'), ('emonstakeaway', 'emonsindiantakeaway.co'),
-    ('qualityassurance', 'thequalityassurance.com'), ('iconicinfluencer', 'iconicinfluencerawards.com'), ('whispersofwisdom', 'whispersofwisdom.co.uk'),
-    ('londoncarrental', 'lcr.co.uk'), ('feedbackvalue', 'feedbackvalue.com'), ('communicationtec', 'communicationtechnologyexpo.com'),
-    ('linkcreationco', 'linkcreation.co.uk'), ('mileageboss', 'mileageboss.com'), ('eurostonetiles', 'eurostonetiles.co.uk'),
-    ('southcoast', 'southcoastclearanceservices.com'), ('mydmsoncloud', 'mydmsoncloud.com'), ('celebadda', 'celebadda.com'),
-    ('wwwsimongreenhil', 'simongreenhill.com'), ('officefurnitures', 'officefurnituresonlines.com'), ('restaurantonweb', 'restaurantonweb.mydevsystems.com'),
-    ('portsmouthbusine', 'portsmouthbusinessshow.com'), ('jujoohosting', 'jujoohosting.com'), ('headlines', 'headlinesadvertising.com'),
-    ('keysaspects', 'keysaspects.com'), ('yellowsandstech', 'yellowsandstechnologies.com'), ('venturecreationb', 'venturecreationbootcamp.com'),
-    ('invoice', 'invoicemadesimple.com'), ('outboundme', 'outbound.me.uk'), ('portal3dprolashe', 'portal.3dprolashes.com'),
-    ('internationalsta', 'internationalstartupshow.com'), ('smecreation', 'smecreation.com'), ('dubaiglobalshow', 'dubaiglobalbusinessshow.com'),
-    ('mediaandinfluen', 'mediaandinfluencerexpo.com'), ('connectlocal', 'businessconnectorslocal.com'), ('smecreationorg', 'smecreation.org'),
-    ('fundersnfounders', 'fundersandfoundersshow.com'), ('corporateexpo', 'corporatewellbeingexpo.com'), ('rootthebigfesti', 'thebigplatinumfestival.org'),
-    ('businessinexpo', 'businessinnovationexpo.com'), ('imperialitiom', 'imperialit.im'), ('harmonyholiday', 'harmonyholidayhomes.com'),
-    ('birminghambusine', 'birminghambusinessexpo.com'), ('doctorondemand', 'doctorondemand.uk'), ('salesleadmachine', 'salesleadmachine.co.uk'),
-    ('geeconlearnings', 'geeconlearnings.co.in'), ('shoutoutdev', 'shoutout.mydevsystems.com'), ('tuvaaadmin', 'tuvaa.org.uk'),
-    ('miltonkeynesex', 'miltonkeynesexpo.com'), ('holidayhomesco', 'holidayhomes.co.in'), ('topsoluadmin', 'topsolutionsrecruitment.co.uk'),
-    ('greenbarandevent', 'greenhill-events.com'), ('doctorsondemandc', 'doctorsondemand.co.uk'), ('leygreenfarmhous', 'leygreenfarmhouse.com'),
-    ('royalindiancurry', 'royalindiancurryclub.com'), ('legacyofleadersh', 'legacyofleadershipaward.com'), ('treatyourpetz', 'treatyourpetz.co.uk'),
-    ('startupcreation', 'startupcreation.co.uk'), ('completelive', 'completemarketinglive.com'), ('facecreation', 'facecreation.co.uk'),
-    ('jagstrophiesco', 'jagstrophies.co.uk'), ('crhermanasco', 'crhermanas.com'), ('businessrevivals', 'businessrivalseries.uk')
-]
-
-SERVER_B_PROJECTS = [
-    ("backup", "backup.com"), ("britishfurnitures", "britishfurnitures.co.uk"),
-    ("catertool", "catertool.mydevsystems.com"), ("devthingstodo", "dev.thingstodopad.com"),
-    ("meetsmydevsys", "meets.mydevsystems.com"), ("mydevsystems", "mydevsystems.com"),
-    ("myuatportals", "myuatportals.com"), ("myuatsystems", "myuatsystems.com"),
-    ("ourowncloud", "ourowncloud.com"), ("sharespare", "sharespare.com")
-]
 
 
 def _clear_server_discoveries(db, server_id: int):
@@ -215,22 +146,36 @@ def collect_system_info(client: paramiko.SSHClient) -> dict:
     info["cpu_cores"] = _safe_int(cpu_info.get("CPU(s)", "0"))
     info["cpu_model"] = cpu_info.get("Model name", "")
 
-    mem_raw = _run(client, "free -m | grep Mem")
-    parts = mem_raw.split()
-    if len(parts) >= 3:
-        total_mb = _safe_int(parts[1])
-        used_mb = _safe_int(parts[2])
-        info["ram_total_gb"] = round(total_mb / 1024, 1)
-        info["memory_usage"] = int((used_mb / total_mb) * 100) if total_mb > 0 else 0
+    # Memory (RAM + Swap)
+    mem_raw = _run(client, "free -m | grep -E '^(Mem|Swap)'")
+    for line in mem_raw.splitlines():
+        parts = line.split()
+        if len(parts) >= 3:
+            if parts[0].startswith("Mem"):
+                total_mb = _safe_int(parts[1])
+                used_mb = _safe_int(parts[2])
+                info["ram_total_gb"] = round(total_mb / 1024, 1)
+                info["memory_usage"] = int((used_mb / total_mb) * 100) if total_mb > 0 else 0
+            elif parts[0].startswith("Swap") and len(parts) >= 3:
+                swap_total = _safe_int(parts[1])
+                swap_used = _safe_int(parts[2])
+                info["swap_total_gb"] = round(swap_total / 1024, 1)
+                info["swap_usage"] = int((swap_used / swap_total) * 100) if swap_total > 0 else 0
 
-    cpu_usage_raw = _run(client, "top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'")
+    # CPU usage from mpstat if available, else top
+    cpu_usage_raw = _run(client, "mpstat 1 1 2>/dev/null | awk '/Average/{print 100-$NF}' || top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'")
     info["cpu_usage"] = _safe_int(cpu_usage_raw)
 
-    disk_raw = _run(client, "df -h / | tail -1")
+    # Disk (usage % and total GB)
+    disk_raw = _run(client, "df -B1 / | tail -1")
     parts = disk_raw.split()
     if len(parts) >= 5:
-        info["disk_usage"] = _safe_int(parts[4].replace("%", ""))
+        total_bytes = _safe_int(parts[1])
+        used_bytes = _safe_int(parts[2])
+        info["disk_total_gb"] = round(total_bytes / (1024 ** 3), 1)
+        info["disk_usage"] = int((used_bytes / total_bytes) * 100) if total_bytes > 0 else 0
 
+    # Load averages
     load_raw = _run(client, "cat /proc/loadavg")
     load_parts = load_raw.split()
     if len(load_parts) >= 3:
@@ -238,10 +183,56 @@ def collect_system_info(client: paramiko.SSHClient) -> dict:
         info["load_avg_5"] = _safe_float(load_parts[1])
         info["load_avg_15"] = _safe_float(load_parts[2])
 
+    # Uptime
     uptime_raw = _run(client, "cat /proc/uptime | awk '{print int($1/86400)}'")
     info["uptime_days"] = _safe_int(uptime_raw)
 
+    # Error count from journal (last 24h critical/error messages)
+    error_raw = _run(client, "journalctl -p err --since='24 hours ago' --no-pager -q 2>/dev/null | wc -l || grep -c 'error\\|ERROR\\|CRITICAL' /var/log/syslog 2>/dev/null || echo 0")
+    info["error_count"] = _safe_int(error_raw)
+
+    # Web server detection
+    web_srv = _run(client, "systemctl is-active nginx 2>/dev/null || systemctl is-active apache2 2>/dev/null || systemctl is-active httpd 2>/dev/null || echo none")
+    if "active" in web_srv.lower():
+        nginx_chk = _run(client, "systemctl is-active nginx 2>/dev/null")
+        info["web_server"] = "nginx" if "active" in nginx_chk.lower() else "apache"
+    else:
+        info["web_server"] = None
+
+    # Docker detection
+    docker_ver = _run(client, "docker version --format '{{.Server.Version}}' 2>/dev/null")
+    if docker_ver:
+        info["docker_installed"] = True
+        containers_raw = _run(client, "docker ps -q 2>/dev/null | wc -l")
+        images_raw = _run(client, "docker images -q 2>/dev/null | wc -l")
+        info["docker_containers_running"] = _safe_int(containers_raw)
+        info["docker_images_count"] = _safe_int(images_raw)
+    else:
+        info["docker_installed"] = False
+        info["docker_containers_running"] = 0
+        info["docker_images_count"] = 0
+
+    # Open ports (top 20 listening TCP ports)
+    ports_raw = _run(client, "ss -tlnp 2>/dev/null | awk 'NR>1{print $4}' | grep -oP ':\\K\\d+' | sort -un | head -20 || netstat -tlnp 2>/dev/null | awk 'NR>2{print $4}' | grep -oP ':\\K\\d+' | sort -un | head -20")
+    if ports_raw:
+        import json as _json
+        try:
+            port_list = [int(p) for p in ports_raw.splitlines() if p.strip().isdigit()]
+            info["open_ports"] = _json.dumps(port_list)
+        except Exception:
+            info["open_ports"] = ports_raw[:500]
+
+    # Firewall status
+    fw_raw = _run(client, "ufw status 2>/dev/null | head -1 || firewall-cmd --state 2>/dev/null || echo unknown")
+    if "active" in fw_raw.lower() or "running" in fw_raw.lower():
+        info["firewall_status"] = "active"
+    elif "inactive" in fw_raw.lower() or "not running" in fw_raw.lower():
+        info["firewall_status"] = "inactive"
+    else:
+        info["firewall_status"] = "unknown"
+
     return info
+
 
 
 def discover_projects_via_ssh(client: paramiko.SSHClient) -> list:
@@ -280,18 +271,30 @@ def check_dns_live(domain: str) -> bool:
 
 
 def check_ssl(domain: str) -> Tuple[bool, Optional[int]]:
+    """Check SSL certificate for domain. Returns (has_ssl, days_until_expiry)."""
     if not domain or "." not in domain or domain.endswith(".local") or domain.endswith(".internal"):
         return False, None
     import ssl
+    from datetime import timezone
     try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        with socket.create_connection((domain, 443), timeout=1) as sock:
+        with socket.create_connection((domain, 443), timeout=2) as sock:
             with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                cert = ssock.getpeercert(binary_form=True)
-                if cert:
-                    return True, 60
+                der_cert = ssock.getpeercert(binary_form=True)
+                if der_cert:
+                    try:
+                        from cryptography import x509
+                        from cryptography.hazmat.backends import default_backend
+                        cert_obj = x509.load_der_x509_certificate(der_cert, default_backend())
+                        # Get expiry in UTC-aware datetime
+                        not_after = cert_obj.not_valid_after_utc if hasattr(cert_obj, "not_valid_after_utc") else cert_obj.not_valid_after.replace(tzinfo=timezone.utc)
+                        days_remaining = (not_after - datetime.now(timezone.utc)).days
+                        return True, max(0, days_remaining)
+                    except Exception as e:
+                        logger.debug(f"SSL cert parse failed for {domain}: {e}")
+                        return True, None  # SSL present but expiry unknown
     except Exception:
         pass
     return False, None
@@ -329,17 +332,18 @@ def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, 
     return discovery, True
 
 
-def scan_server_projects(db, server) -> dict:
+def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:
     import time
     start_time = time.time()
     job = ScanJob(
         server_id=server.id,
-        triggered_by="manual",
+        triggered_by=triggered_by,
         status="running",
         started_at=datetime.utcnow(),
     )
     db.add(job)
     db.commit()
+
 
     try:
         client = connect_ssh(server)
@@ -392,13 +396,15 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     for proj in raw_projects:
         try:
             domain = proj.get("domain") or f"{proj['name']}.local"
+            # Real SSL check for each project domain
+            has_ssl, ssl_days = check_ssl(domain)
             proj_data = {
                 **proj,
                 "domain": domain,
                 "dns_points_here": True,
                 "web_config_active": True,
-                "has_ssl": True,
-                "ssl_expiry_days": 60,
+                "has_ssl": has_ssl,
+                "ssl_expiry_days": ssl_days,
                 "days_since_modified": 10,
                 "is_live": True,
                 "is_inactive": False,
@@ -428,12 +434,10 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
 
 
 def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
-    """100% Dynamic WHM Server Discovery — queries WHM API listaccts for any real server."""
+    """Dynamic WHM Server Discovery — queries WHM API listaccts. No fallback fake data."""
     whm_host = server.whm_host or server.ip_address or os.getenv("WHM_HOST")
     whm_token = decrypt_credential(server.whm_token) if server.whm_token else os.getenv("WHM_TOKEN")
     whm_port = server.whm_port or int(os.getenv("WHM_PORT", "2087"))
-
-    is_server_c = server.ip_address == "185.220.63.56" or "c" in (server.name or "").lower() or "3" in (server.name or "").lower()
 
     if whm_host and whm_token:
         try:
@@ -455,7 +459,7 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
             server.cpu_usage = min(95, max(5, int(load1 * 25))) if load1 > 0 else (server.cpu_usage or 15)
             server.memory_usage = min(95, max(10, int(load5 * 20))) if load5 > 0 else (server.memory_usage or 35)
             server.disk_usage = disk_pct if disk_pct > 0 else (server.disk_usage or 35)
-            server.data_source = "whm"
+            server.data_source = "whm_estimated"  # CPU/memory are derived from load avg, not direct measurement
             server.status = "active"
             server.scan_status = "success"
             server.scan_error = None
@@ -474,10 +478,6 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                         seen_users.add(u)
                         unique_accts.append(acc)
 
-                # Cap at 168 accounts if WHM listaccts returns extra reseller/sub-accounts for Server C
-                if is_server_c and len(unique_accts) > 168:
-                    unique_accts = unique_accts[:168]
-
                 _clear_server_discoveries(db, server.id)
                 created_count = 0
 
@@ -487,11 +487,14 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                     domain_name = primary_domain or username
                     proj_path = f"/home/{username}/public_html" if username else "/var/www/html"
 
-                    # DYNAMIC SUSPENDED CHECK FOR ANY NEW SERVER (uses WHM acc.get("suspended") flag)
-                    is_suspended = (idx < 65) if is_server_c else bool(acc.get("suspended"))
+                    # Dynamic suspended check — uses actual WHM API suspended flag for ALL servers
+                    is_suspended = bool(acc.get("suspended"))
 
                     disk_used_mb = _safe_int(acc.get("diskused", 100))
                     disk_limit_mb = _safe_int(acc.get("disklimit", 5000))
+
+                    # Real SSL check per domain
+                    has_ssl, ssl_days = (False, None) if is_suspended else check_ssl(domain_name)
 
                     proj_data = {
                         "name": domain_name,
@@ -503,8 +506,8 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                         "size_mb": disk_used_mb,
                         "dns_points_here": not is_suspended,
                         "web_config_active": not is_suspended,
-                        "has_ssl": not is_suspended,
-                        "ssl_expiry_days": None if is_suspended else 60,
+                        "has_ssl": has_ssl,
+                        "ssl_expiry_days": ssl_days,
                         "days_since_modified": 1120 if is_suspended else 10,
                         "is_live": not is_suspended,
                         "is_inactive": is_suspended,
@@ -520,82 +523,24 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                 job.projects_found = len(unique_accts)
                 return {"ssh_connected": False, "whm_connected": True, "projects_found": len(unique_accts), "data_source": "whm"}
         except Exception as e:
-            logger.warning(f"WHM scan notice for {server.name}: {e}")
+            logger.warning(f"WHM scan failed for {server.name}: {e}")
 
-    # Fallback Profile Engine for benchmark servers A, B, C
+    # No SSH and no WHM — report honest failure, do NOT inject fake data
     server.last_scanned_at = datetime.utcnow()
-    server.scan_status = "success"
-    server.scan_error = None
-    server.data_source = server.data_source or "whm"
+    server.scan_status = "no_credentials"
+    server.scan_error = "Neither SSH nor WHM credentials are configured or both connections failed. Add SSH password/key or WHM token to enable scanning."
+    server.data_source = "none"
     server.risk_score = calculate_server_risk(server)
     db.commit()
 
-    ip_str = (server.ip_address or "").strip()
-    name_str = (server.name or "").strip().lower()
-
-    target_accts = []
-
-    if is_server_c:
-        server.cpu_usage = server.cpu_usage or 95
-        server.memory_usage = server.memory_usage or 95
-        server.disk_usage = server.disk_usage or 35
-        target_accts = SERVER_C_ACCOUNT_DOMAINS
-    elif ip_str == "82.25.27.52" or "b" in name_str or "2" in name_str:
-        server.cpu_usage = server.cpu_usage or 10
-        server.memory_usage = server.memory_usage or 20
-        server.disk_usage = server.disk_usage or 35
-        target_accts = SERVER_B_PROJECTS
-    elif ip_str == "212.48.85.72" or "a" in name_str or "1" in name_str:
-        server.cpu_usage = server.cpu_usage or 15
-        server.memory_usage = server.memory_usage or 25
-        server.disk_usage = server.disk_usage or 35
-        target_accts = [("business", "businessrivalseries.uk")]
-    else:
-        # Dynamic fallback for generic new servers without active WHM token or SSH
-        target_accts = [
-            (f"app_{name_str}_1", f"app1.{name_str}.com"),
-            (f"app_{name_str}_2", f"app2.{name_str}.com"),
-            (f"api_{name_str}", f"api.{name_str}.com"),
-            (f"portal_{name_str}", f"portal.{name_str}.com"),
-            (f"web_{name_str}", f"{name_str}.com"),
-        ]
-
-    _clear_server_discoveries(db, server.id)
-    created_count = 0
-
-    for idx, (user, domain) in enumerate(target_accts):
-        is_suspended = (idx < 65) if is_server_c else False
-
-        proj_data = {
-            "name": domain,
-            "domain": domain,
-            "path": f"/home/{user}/public_html",
-            "owner": user,
-            "framework": "php",
-            "language": "php",
-            "dns_points_here": not is_suspended,
-            "web_config_active": not is_suspended,
-            "has_ssl": not is_suspended,
-            "ssl_expiry_days": None if is_suspended else 60,
-            "days_since_modified": 1120 if is_suspended else 10,
-            "is_live": not is_suspended,
-            "is_inactive": is_suspended,
-            "env_type": "archived" if is_suspended else "live",
-            "risk_score": 45 if is_suspended else 15,
-            "data_source": "whm",
-        }
-        upsert_discovery(db, server.id, proj_data)
-        created_count += 1
-
-    db.commit()
-
-    job.data_source = "whm"
-    job.projects_found = len(target_accts)
+    job.data_source = "none"
+    job.projects_found = 0
 
     return {
         "ssh_connected": False,
-        "projects_found": len(target_accts),
-        "projects_created": created_count,
-        "status": "whm_discovery_completed",
-        "data_source": "whm",
+        "whm_connected": False,
+        "projects_found": 0,
+        "status": "no_credentials",
+        "error": server.scan_error,
+        "data_source": "none",
     }

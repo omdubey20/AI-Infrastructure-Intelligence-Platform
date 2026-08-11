@@ -88,7 +88,7 @@ export default function Servers() {
     e.stopPropagation();
     setActionMsg({ ok: true, msg: `Scanning ${name}...` });
     try {
-      const res = await api.post(`/servers/${id}/discover`);
+      const res = await api.post(`/servers/${id}/scan`);
       setActionMsg({ ok: true, msg: `Scan complete for ${name}: ${res.data.projects_found || 0} project(s) discovered.` });
       fetchServers();
     } catch (err) {

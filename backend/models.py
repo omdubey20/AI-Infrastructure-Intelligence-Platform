@@ -197,9 +197,13 @@ class ProjectDiscovery(Base):
     ai_confidence = Column(Float, default=0.0)
     recommendation = Column(String, default="keep")  # keep, archive, delete
 
+    # --- User Action Override (persisted — survives restart) ---
+    user_override = Column(String, nullable=True)   # keep, archive, delete
+
     # --- Meta ---
     data_source = Column(String, default="estimated")  # ssh, whm_estimated, estimated
     last_synced_at = Column(DateTime, nullable=True)
+
 
     # Relationships
     server = relationship("Server", back_populates="discoveries")
