@@ -434,10 +434,12 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
 
 
 def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
-    """Dynamic WHM Server Discovery — queries WHM API listaccts. No fallback fake data."""
-    whm_host = server.whm_host or server.ip_address or os.getenv("WHM_HOST")
-    whm_token = decrypt_credential(server.whm_token) if server.whm_token else os.getenv("WHM_TOKEN")
-    whm_port = server.whm_port or int(os.getenv("WHM_PORT", "2087"))
+    """Dynamic WHM Server Discovery — queries WHM API listaccts using ONLY this server's own credentials."""
+    # IMPORTANT: Do NOT fall back to env vars — that would connect to a different server's WHM
+    # and return wrong accounts. Each server must use only its OWN stored credentials.
+    whm_host = server.whm_host or server.ip_address
+    whm_token = decrypt_credential(server.whm_token) if server.whm_token else None
+    whm_port = server.whm_port or 2087
 
     if whm_host and whm_token:
         try:
