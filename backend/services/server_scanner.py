@@ -381,6 +381,7 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
     if env_host and env_host not in hosts_to_try:
         hosts_to_try.append(env_host)
 
+    last_error = None
     for whm_host in hosts_to_try:
         if not (whm_host and whm_token):
             continue
@@ -389,8 +390,14 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                 get_whm_accounts_for_server,
                 get_server_load,
                 get_server_disk,
+                _whm_get,
             )
-            accts = get_whm_accounts_for_server(whm_host, whm_token, whm_port)
+            raw_res = _whm_get(whm_host, whm_token, whm_port, "listaccts", {"api.version": "1"})
+            if isinstance(raw_res, dict) and raw_res.get("is_security_block"):
+                last_error = raw_res.get("error")
+                continue
+
+            accts = raw_res.get("data", {}).get("acct", []) if isinstance(raw_res, dict) else []
             if accts:
                 loads = get_server_load(whm_host, whm_token, whm_port)
                 disk_pct = get_server_disk(whm_host, whm_token, whm_port)
@@ -461,22 +468,25 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                 return {"ssh_connected": False, "whm_connected": True, "projects_found": len(unique_accts), "data_source": "whm"}
         except Exception as e:
             logger.warning(f"WHM scan failed for {server.name}: {e}")
+            last_error = str(e)
 
-    # No SSH and no WHM connection — report honest failure
+    # No SSH and no WHM connection — report explicit diagnostic failure
     server.last_scanned_at = datetime.utcnow()
-    server.scan_status = "no_credentials"
-    server.scan_error = "Neither SSH nor WHM credentials are configured or both connections failed."
+    server.scan_status = "error" if last_error else "no_credentials"
+    server.scan_error = last_error or "Neither SSH nor WHM credentials are configured or both connections failed."
     server.data_source = "none"
     server.risk_score = calculate_server_risk(server)
     db.commit()
 
     job.data_source = "none"
     job.projects_found = 0
+    job.error_message = server.scan_error
 
     return {
         "ssh_connected": False,
         "whm_connected": False,
         "projects_found": 0,
-        "status": "no_credentials",
+        "status": server.scan_status,
+        "error": server.scan_error,
         "data_source": "none",
     }

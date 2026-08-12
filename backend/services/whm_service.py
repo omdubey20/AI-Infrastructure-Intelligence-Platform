@@ -33,7 +33,6 @@ def _whm_get(host: str, token: str, port: int, endpoint: str, params: dict = Non
 
     try:
         r = session.get(url, headers=headers, params=params or {}, timeout=15)
-        # Handle JSON response directly
         if r.status_code == 200:
             try:
                 return r.json()
@@ -42,6 +41,16 @@ def _whm_get(host: str, token: str, port: int, endpoint: str, params: dict = Non
                 alt_url = f"https://{host}:{port}/json-api/{endpoint}?api.version=1"
                 r2 = session.get(alt_url, headers=headers, timeout=15)
                 return r2.json()
+        elif r.status_code in (403, 401, 429):
+            try:
+                err_data = r.json()
+                msg = err_data.get("message") or err_data.get("metadata", {}).get("reason")
+                if msg:
+                    logger.warning(f"WHM Security Block ({r.status_code}) on {host}: {msg}")
+                    return {"error": msg, "status_code": r.status_code, "is_security_block": True}
+            except Exception:
+                pass
+            return {"error": f"HTTP {r.status_code} Access Denied (Imunify360 / cPHulk Protection)", "status_code": r.status_code, "is_security_block": True}
         return {}
     except Exception as e:
         logger.warning(f"WHM API error {endpoint} on {host}: {e}")
