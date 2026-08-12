@@ -1,73 +1,58 @@
 {
-  "builds": [
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/build",
+  "rewrites": [
     {
-      "src": "frontend/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "build"
-      }
+      "source": "/api/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "api/index.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "api/index.py"
+      "source": "/auth/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/auth/(.*)",
-      "dest": "api/index.py"
+      "source": "/servers/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/servers/(.*)",
-      "dest": "api/index.py"
+      "source": "/projects/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/projects/(.*)",
-      "dest": "api/index.py"
+      "source": "/cleanup/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/cleanup/(.*)",
-      "dest": "api/index.py"
+      "source": "/stats/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/stats/(.*)",
-      "dest": "api/index.py"
+      "source": "/discovery/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/discovery/(.*)",
-      "dest": "api/index.py"
+      "source": "/whm/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/whm/(.*)",
-      "dest": "api/index.py"
+      "source": "/ml/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/ml/(.*)",
-      "dest": "api/index.py"
+      "source": "/ai/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/ai/(.*)",
-      "dest": "api/index.py"
+      "source": "/audit/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/audit/(.*)",
-      "dest": "api/index.py"
+      "source": "/health",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/health",
-      "dest": "api/index.py"
-    },
-    {
-      "src": "/static/(.*)",
-      "dest": "frontend/build/static/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "frontend/build/index.html"
+      "source": "/((?!api|auth|servers|projects|cleanup|stats|discovery|whm|ml|ai|audit|health).*)",
+      "destination": "/index.html"
     }
   ]
 }
