@@ -3,21 +3,10 @@ import os
 
 import bcrypt
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-try:
-    from slowapi import Limiter
-    from slowapi.util import get_remote_address
-    limiter = Limiter(key_func=get_remote_address)
-except Exception:
-    class DummyLimiter:
-        def limit(self, *args, **kwargs):
-            def decorator(f):
-                return f
-            return decorator
-    limiter = DummyLimiter()
 
 import models
 import schemas
@@ -34,7 +23,12 @@ router = APIRouter(
 # JWT CONFIG
 # =========================
 
-SECRET_KEY = os.getenv("SECRET_KEY", "cWfTKKTNDUNou3R-W_Dv-Haz-GSWZMHFD9O-h_ASwtL2WBPWe4XWtj_o7--1-wuCFymyMdF-Qg67GYztmQUhYQ")
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRETKEY environment variable is not configured"
+    )
 
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(
@@ -153,7 +147,7 @@ def require_role(allowed_roles: list):
     return role_checker
 
 # =========================
-# REGISTER (admin-only after first user)
+# REGISTER
 # =========================
 
 @router.post(
@@ -161,32 +155,10 @@ def require_role(allowed_roles: list):
     response_model=schemas.UserOut,
     status_code=status.HTTP_201_CREATED
 )
-@limiter.limit("5/minute")
 def register(
-    request: Request,
     user: schemas.UserCreate,
     db: Session = Depends(get_db)
 ):
-    # First user can self-register (bootstrap); after that, admin-only
-    user_count = db.query(models.User).count()
-    if user_count > 0:
-        # Require admin auth for subsequent registrations
-        try:
-            current_user = get_current_user(
-                token=request.headers.get("Authorization", "").replace("Bearer ", ""),
-                db=db
-            )
-            if current_user.role != "admin":
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only admins can register new users"
-                )
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin authentication required to register new users"
-            )
-
     existing_user = (
         db.query(models.User)
         .filter(
@@ -201,17 +173,13 @@ def register(
             detail="Username already exists"
         )
 
-    # First user gets admin role, subsequent users get viewer
-    role = "admin" if user_count == 0 else "viewer"
-
     new_user = models.User(
         username=user.username,
         email=user.email,
         hashed_password=hash_password(
             user.password
         ),
-        is_active=True,
-        role=role
+        is_active=True
     )
 
     db.add(new_user)
@@ -228,9 +196,7 @@ def register(
     "/login",
     response_model=schemas.Token
 )
-@limiter.limit("10/minute")
 def login(
-    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):

@@ -8,14 +8,13 @@ Main FastAPI Backend Server
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from database import Base, engine, get_db, SessionLocal
-from models import Server, ProjectDiscovery, User
+from database import Base, engine, get_db
+from models import Server, ProjectDiscovery
 from services.server_scanner import scan_server_projects
 from services.ai_insights_engine import generate_all_insights
 from services.duplicate_detector import detect_duplicates
@@ -31,30 +30,6 @@ try:
     Base.metadata.create_all(bind=engine, checkfirst=True)
 except Exception as db_err:
     logger.warning(f"Database table creation deferred: {db_err}")
-
-
-def ensure_default_user():
-    """Auto-seed default admin user if user table is empty."""
-    try:
-        db = SessionLocal()
-        if db.query(User).count() == 0:
-            from routers.auth import hash_password
-            admin_user = User(
-                username="admin",
-                email="admin@platform.local",
-                hashed_password=hash_password("admin123"),
-                role="admin",
-                is_active=True
-            )
-            db.add(admin_user)
-            db.commit()
-            logger.info("Default admin user auto-seeded: admin / admin123")
-        db.close()
-    except Exception as e:
-        logger.warning(f"Default user check deferred: {e}")
-
-
-ensure_default_user()
 
 try:
     from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -150,9 +125,34 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-@app.middleware("http")
-async def vercel_path_normalizer(request: Request, call_next):
-    raw_path = request.scope.get("path", "")
+# ========================
+# Routers
+# ========================
+app.include_router(auth_router)
+app.include_router(servers.router)
+app.include_router(projects.router)
+app.include_router(cleanup.router)
+app.include_router(stats.router)
+app.include_router(discovery.router)
+app.include_router(whm.router)
+app.include_router(ml.router)
+app.include_router(ai.router)
+app.include_router(audit.router)
+app.include_router(dashboard_spec.router)
+
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def root():
+    return {"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"}
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "healthy",
+        "database": "connected",
+        "scheduler": "running" if scheduler.running else "stopped",
+    }aw_path = request.scope.get("path", "")
     matched = request.headers.get("x-matched-path", "")
 
     if matched and matched != raw_path:

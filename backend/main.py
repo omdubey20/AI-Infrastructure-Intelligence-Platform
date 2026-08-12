@@ -1,21 +1,15 @@
 """
 AI Infrastructure Intelligence Platform
 Main FastAPI Backend Server
-- Rate limiting (slowapi)
-- Strict CORS (no wildcard in production)
-- APScheduler with misfire guard
 """
 import logging
-import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from database import Base, engine, get_db, SessionLocal
-from models import Server, ProjectDiscovery, User
+from database import Base, engine, get_db
+from models import Server, ProjectDiscovery
 from services.server_scanner import scan_server_projects
 from services.ai_insights_engine import generate_all_insights
 from services.duplicate_detector import detect_duplicates
@@ -27,63 +21,16 @@ from routers.auth import router as auth_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend.main")
 
-try:
-    Base.metadata.create_all(bind=engine, checkfirst=True)
-except Exception as db_err:
-    logger.warning(f"Database table creation deferred: {db_err}")
+Base.metadata.create_all(bind=engine, checkfirst=True)
 
-
-def ensure_default_user():
-    """Auto-seed default admin user if user table is empty."""
-    try:
-        db = SessionLocal()
-        if db.query(User).count() == 0:
-            from routers.auth import hash_password
-            admin_user = User(
-                username="admin",
-                email="admin@platform.local",
-                hashed_password=hash_password("admin123"),
-                role="admin",
-                is_active=True
-            )
-            db.add(admin_user)
-            db.commit()
-            logger.info("Default admin user auto-seeded: admin / admin123")
-        db.close()
-    except Exception as e:
-        logger.warning(f"Default user check deferred: {e}")
-
-
-ensure_default_user()
-
-try:
-    from slowapi import Limiter, _rate_limit_exceeded_handler
-    from slowapi.util import get_remote_address
-    from slowapi.errors import RateLimitExceeded
-    limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
-    HAS_SLOWAPI = True
-except Exception:
-    limiter = None
-    HAS_SLOWAPI = False
-
-# ========================
-# Scheduler
-# ========================
 scheduler = BackgroundScheduler()
 
 
 def hourly_sync_job():
-    """Hourly background synchronization — rescans server metrics, detects duplicates/inactives, refreshes AI insights."""
+    """Hourly background synchronization job for metrics, discovery, AI & ML."""
     logger.info("APScheduler: Running hourly synchronization job...")
     db = next(get_db())
     try:
-        all_servers = db.query(Server).all()
-        for server in all_servers:
-            try:
-                scan_server_projects(db, server, triggered_by="scheduler")
-            except Exception as scan_err:
-                logger.warning(f"APScheduler: Failed to scan {server.name}: {scan_err}")
-
         discoveries = db.query(ProjectDiscovery).all()
         detect_duplicates(discoveries)
         detect_inactive_projects(discoveries)
@@ -91,7 +38,6 @@ def hourly_sync_job():
         db.commit()
     except Exception as e:
         logger.error(f"APScheduler sync job error: {e}")
-        db.rollback()
     finally:
         db.close()
     logger.info("APScheduler: Hourly sync job completed.")
@@ -99,84 +45,27 @@ def hourly_sync_job():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not (os.getenv("VERCEL") or os.getenv("VERCEL_ENV")):
-        try:
-            scheduler.add_job(
-                hourly_sync_job,
-                "interval",
-                hours=1,
-                id="hourly_sync",
-                misfire_grace_time=300,       # Allow 5-min late execution
-                max_instances=1,              # Prevent overlapping runs
-                coalesce=True,                # Merge missed runs into one
-            )
-            scheduler.start()
-            logger.info("APScheduler started — hourly background sync active.")
-        except Exception as sched_err:
-            logger.warning(f"APScheduler skipped: {sched_err}")
+    scheduler.add_job(hourly_sync_job, "interval", hours=1, id="hourly_sync")
+    scheduler.start()
+    logger.info("APScheduler started — hourly background sync active.")
     yield
-    if not (os.getenv("VERCEL") or os.getenv("VERCEL_ENV")):
-        try:
-            scheduler.shutdown()
-        except Exception:
-            pass
+    scheduler.shutdown()
+    logger.info("APScheduler stopped.")
 
 
-# ========================
-# FastAPI App
-# ========================
 app = FastAPI(
     title="AI Infrastructure Intelligence Platform",
-    version="3.0.0",
-    lifespan=lifespan,
+    version="2.0.0",
+    lifespan=lifespan
 )
-
-# Rate limiter registration
-if HAS_SLOWAPI and limiter:
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# CORS — restrict to known origins (env-configurable)
-ALLOWED_ORIGINS = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:3000,http://localhost:5173,https://ai-infrastructure-intelligence-platform.vercel.app"
-).split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-@app.middleware("http")
-async def vercel_path_normalizer(request: Request, call_next):
-    raw_path = request.scope.get("path", "")
-    matched = request.headers.get("x-matched-path", "")
-
-    if matched and matched != raw_path:
-        request.scope["path"] = matched
-    elif raw_path.startswith("/api/index.py"):
-        request.scope["path"] = raw_path.replace("/api/index.py", "") or "/"
-
-    return await call_next(request)
-
-
-# ========================
-# Routers (Dual Mount for /api and direct endpoints)
-# ========================
-app.include_router(auth_router, prefix="/api")
-app.include_router(servers.router, prefix="/api")
-app.include_router(projects.router, prefix="/api")
-app.include_router(cleanup.router, prefix="/api")
-app.include_router(stats.router, prefix="/api")
-app.include_router(discovery.router, prefix="/api")
-app.include_router(whm.router, prefix="/api")
-app.include_router(ml.router, prefix="/api")
-app.include_router(ai.router, prefix="/api")
-app.include_router(audit.router, prefix="/api")
-app.include_router(dashboard_spec.router, prefix="/api")
 
 app.include_router(auth_router)
 app.include_router(servers.router)
@@ -191,9 +80,10 @@ app.include_router(audit.router)
 app.include_router(dashboard_spec.router)
 
 
-@app.get("/api/status")
-def status():
-    return {"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"}
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def root():
+    return {"message": "AI Infrastructure Intelligence Platform", "version": "2.0.0", "status": "running"}
 
 
 @app.get("/health")
@@ -201,16 +91,8 @@ def health():
     return {
         "status": "healthy",
         "database": "connected",
-        "scheduler": "running" if scheduler.running else "stopped",
-    }
-
-
-# Static build mount candidates for frontend SPA
-build_candidates = [
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "frontend", "build")),
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "build")),
-    os.path.abspath("frontend/build"),
-]
+        "scheduler": "running" if scheduler.running else "stopped"
+    }]
 
 frontend_build_dir = None
 for b_dir in build_candidates:
