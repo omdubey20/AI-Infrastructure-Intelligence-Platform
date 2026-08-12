@@ -29,7 +29,10 @@ from routers.auth import router as auth_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend.main")
 
-Base.metadata.create_all(bind=engine, checkfirst=True)
+try:
+    Base.metadata.create_all(bind=engine, checkfirst=True)
+except Exception as db_init_err:
+    logger.warning(f"Database initialization notice on startup: {db_init_err}")
 
 # ========================
 # Rate Limiter

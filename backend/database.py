@@ -5,19 +5,19 @@ import os
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./infra_intel.db")
 
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL not found in .env")
+engine_kwargs = {"pool_pre_ping": True}
+if "sqlite" not in DATABASE_URL:
+    engine_kwargs.update({
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_timeout": 30,
+    })
+else:
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
 
-# Connection pool settings for production stability
-engine = create_engine(
-    DATABASE_URL,
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=30,
-    pool_pre_ping=True,  # Verify connections before use
-)
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 SessionLocal = sessionmaker(
     autocommit=False,
