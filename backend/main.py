@@ -141,8 +141,8 @@ app.include_router(audit.router)
 app.include_router(dashboard_spec.router)
 
 
-@app.api_route("/", methods=["GET", "HEAD"])
-def root():
+@app.get("/api/status")
+def status():
     return {"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"}
 
 
