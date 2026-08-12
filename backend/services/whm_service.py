@@ -44,13 +44,13 @@ def _whm_get(host: str, token: str, port: int, endpoint: str, params: dict = Non
         elif r.status_code in (403, 401, 429):
             try:
                 err_data = r.json()
-                msg = err_data.get("message") or err_data.get("metadata", {}).get("reason")
+                msg = err_data.get("message") or err_data.get("metadata", {}).get("reason") or err_data.get("cpanelresult", {}).get("error")
                 if msg:
                     logger.warning(f"WHM Security Block ({r.status_code}) on {host}: {msg}")
                     return {"error": msg, "status_code": r.status_code, "is_security_block": True}
             except Exception:
                 pass
-            return {"error": f"HTTP {r.status_code} Access Denied (Imunify360 / cPHulk Protection)", "status_code": r.status_code, "is_security_block": True}
+            return {"error": f"HTTP {r.status_code} Access Denied (Imunify360 / cPHulk / Token Auth Error)", "status_code": r.status_code, "is_security_block": True}
         return {}
     except Exception as e:
         logger.warning(f"WHM API error {endpoint} on {host}: {e}")
