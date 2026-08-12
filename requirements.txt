@@ -40,5 +40,4 @@ joblib==1.4.2
 matplotlib==3.9.2
 xgboost==2.1.1
 mlflow==2.14.1
-python-multipart
-
+slowapi==0.1.9

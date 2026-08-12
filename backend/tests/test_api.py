@@ -96,7 +96,7 @@ def auth_headers() -> dict:
 
 class TestHealthEndpoints:
     def test_root_returns_200(self):
-        resp = client.get("/api/status")
+        resp = client.get("/")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "running"
