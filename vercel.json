@@ -1,19 +1,62 @@
 {
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/build",
-  "functions": {
-    "api/index.py": {
-      "memory": 1024
-    }
-  },
-  "rewrites": [
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "src": "/api/(.*)",
+      "dest": "api/index.py"
     },
     {
-      "source": "/((?!api|static).*)",
-      "destination": "/index.html"
+      "src": "/auth/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/servers/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/projects/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/cleanup/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/stats/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/discovery/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/whm/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/ml/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/ai/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/audit/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/health",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
