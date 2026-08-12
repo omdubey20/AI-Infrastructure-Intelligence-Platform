@@ -225,7 +225,9 @@ if frontend_build_dir and os.path.exists(os.path.join(frontend_build_dir, "stati
 @app.exception_handler(404)
 async def spa_404_handler(request: Request, exc: Exception):
     path = request.url.path.lstrip("/")
-    if path in ("health", "api/status") or path.startswith(("auth", "servers", "projects", "cleanup", "stats", "discovery", "whm", "ml", "ai", "audit", "api")):
+    clean_path = path[4:] if path.startswith("api/") else path
+
+    if clean_path in ("health", "status") or clean_path.startswith(("auth", "servers", "projects", "cleanup", "stats", "discovery", "whm", "ml", "ai", "audit")):
         return JSONResponse({"detail": "Not Found"}, status_code=404)
 
     if frontend_build_dir:
