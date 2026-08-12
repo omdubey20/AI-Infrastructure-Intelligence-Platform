@@ -10,6 +10,7 @@ passlib
 bcrypt
 python-dotenv
 pydantic
+email-validator
 scikit-learn
 numpy
 joblib
