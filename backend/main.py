@@ -8,9 +8,10 @@ Main FastAPI Backend Server
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import Base, engine, get_db
@@ -153,3 +154,36 @@ def health():
         "database": "connected",
         "scheduler": "running" if scheduler.running else "stopped",
     }
+
+
+# Static build mount candidates for frontend SPA
+build_candidates = [
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "frontend", "build")),
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "build")),
+    os.path.abspath("frontend/build"),
+]
+
+frontend_build_dir = None
+for b_dir in build_candidates:
+    if os.path.exists(b_dir):
+        frontend_build_dir = b_dir
+        break
+
+if frontend_build_dir and os.path.exists(os.path.join(frontend_build_dir, "static")):
+    app.mount("/static", StaticFiles(directory=os.path.join(frontend_build_dir, "static")), name="static")
+
+
+@app.get("/{full_path:path}")
+async def serve_react_app(request: Request, full_path: str):
+    if full_path in ("health", "api/status") or full_path.startswith(("auth", "servers", "projects", "cleanup", "stats", "discovery", "whm", "ml", "ai", "audit", "api")):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    if frontend_build_dir:
+        file_path = os.path.join(frontend_build_dir, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        index_file = os.path.join(frontend_build_dir, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+
+    return JSONResponse({"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"})

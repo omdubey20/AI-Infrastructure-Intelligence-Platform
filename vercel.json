@@ -52,7 +52,7 @@
     },
     {
       "source": "/:path*",
-      "destination": "/index.html"
+      "destination": "/api/index.py"
     }
   ]
 }
