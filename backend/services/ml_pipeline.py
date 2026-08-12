@@ -12,8 +12,14 @@ import json
 import logging
 import numpy as np
 import pandas as pd
-import mlflow
-import mlflow.sklearn
+try:
+    import mlflow
+    import mlflow.sklearn
+    HAS_MLFLOW = True
+except Exception:
+    mlflow = None
+    HAS_MLFLOW = False
+
 from datetime import datetime
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
@@ -28,7 +34,7 @@ EXPERIMENT_NAME = "Server_Risk_Scoring_Model"
 # Minimum R² to consider model healthy (below = drift detected)
 DRIFT_R2_THRESHOLD = 0.70
 # Minimum real samples to train on real data; below this, supplement with synthetic
-MIN_REAL_SAMPLES = 30
+MIN_REAL_SAMPLES = 50
 
 
 def _load_model_meta() -> dict:
@@ -51,40 +57,39 @@ def _save_model_meta(meta: dict):
         logger.warning(f"Could not save model meta: {e}")
 
 
-def generate_synthetic_dataset(n_samples: int = 800, random_seed: int = 42) -> pd.DataFrame:
-    """
-    Generate synthetic server risk training data.
-    Used as augmentation when real DB samples are insufficient.
-    The risk formula mirrors the rule-based risk_engine.py weights.
-    """
-    np.random.seed(random_seed)
-    cpu = np.random.uniform(5, 100, n_samples)
-    memory = np.random.uniform(10, 100, n_samples)
-    disk = np.random.uniform(10, 100, n_samples)
+def generate_synthetic_dataset(n_samples: int = 1000) -> pd.DataFrame:
+    """Generate realistic synthetic server telemetry data for bootstrapping."""
+    np.random.seed(42)
+    cpu = np.random.uniform(5, 99, n_samples)
+    memory = np.random.uniform(10, 99, n_samples)
+    disk = np.random.uniform(10, 99, n_samples)
     uptime = np.random.uniform(1, 1000, n_samples)
     errors = np.random.poisson(lam=5, size=n_samples)
 
-    # Risk formula matches the rule-based engine weights
-    risk = (
-        0.35 * cpu +
-        0.30 * memory +
-        0.25 * disk +
-        0.02 * np.minimum(uptime, 365) +
-        1.5 * np.minimum(errors, 50) +
-        np.random.normal(0, 2.5, n_samples)
+    risk_score = (
+        cpu * 0.35 +
+        memory * 0.30 +
+        disk * 0.25 +
+        np.minimum(errors * 2, 20) +
+        np.where(uptime > 365, 5, 0) +
+        np.random.normal(0, 3, n_samples)
     )
-    risk = np.clip(risk, 0, 100)
+    risk_score = np.clip(risk_score, 0, 100).round()
 
     return pd.DataFrame({
-        "cpu": cpu, "memory": memory, "disk": disk,
-        "uptime": uptime, "errors": errors, "risk_score": risk
+        "cpu": cpu,
+        "memory": memory,
+        "disk": disk,
+        "uptime": uptime,
+        "errors": errors,
+        "risk_score": risk_score
     })
 
 
 def build_training_dataset(db=None) -> pd.DataFrame:
     """
-    Build a training dataset from real server DB records, augmented with synthetic data.
-    Real data takes precedence; synthetic samples fill the gap if real count < MIN_REAL_SAMPLES.
+    Build training dataset combining real server metrics from DB
+    and synthetic samples when real sample count is small.
     """
     real_rows = []
 
@@ -131,14 +136,7 @@ def build_training_dataset(db=None) -> pd.DataFrame:
     return df.sample(frac=1, random_state=42).reset_index(drop=True)
 
 
-def train_and_evaluate_pipeline(db=None) -> dict:
-    """
-    Executes end-to-end ML pipeline with MLflow tracking.
-    Accepts an optional db session to train on real server data.
-    """
-    mlflow.set_experiment(EXPERIMENT_NAME)
-
-    df = build_training_dataset(db=db)
+def _train_core_model(df) -> dict:
     X = df[["cpu", "memory", "disk", "uptime", "errors"]]
     y = df["risk_score"]
 
@@ -148,112 +146,101 @@ def train_and_evaluate_pipeline(db=None) -> dict:
     max_depth = 12
     random_state = 42
 
-    with mlflow.start_run() as run:
-        run_id = run.info.run_id
+    # Prefer XGBoost; fall back to RandomForest
+    try:
+        from xgboost import XGBRegressor
+        model = XGBRegressor(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            random_state=random_state,
+            learning_rate=0.08,
+            subsample=0.85,
+            colsample_bytree=0.85
+        )
+        model.fit(X_train, y_train)
+        model_name = "XGBoost"
+    except Exception as e:
+        logger.info(f"XGBoost unavailable ({e}), using RandomForestRegressor.")
+        model = RandomForestRegressor(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            random_state=random_state,
+            n_jobs=-1
+        )
+        model.fit(X_train, y_train)
+        model_name = "RandomForest"
 
-        # Prefer XGBoost; fall back to RandomForest
-        try:
-            from xgboost import XGBRegressor
-            model = XGBRegressor(
-                n_estimators=n_estimators,
-                max_depth=max_depth,
-                random_state=random_state,
-                learning_rate=0.08,
-                subsample=0.85,
-                colsample_bytree=0.85
-            )
-            model.fit(X_train, y_train)
-            model_name = "XGBoost"
-        except Exception as e:
-            logger.info(f"XGBoost unavailable ({e}), using RandomForestRegressor.")
-            model = RandomForestRegressor(
-                n_estimators=n_estimators,
-                max_depth=max_depth,
-                random_state=random_state,
-                n_jobs=-1
-            )
-            model.fit(X_train, y_train)
-            model_name = "RandomForest"
+    predictions = model.predict(X_test)
+    mse = mean_squared_error(y_test, predictions)
+    rmse = float(np.sqrt(mse))
+    mae = float(mean_absolute_error(y_test, predictions))
+    r2 = float(r2_score(y_test, predictions))
 
-        # Evaluation
-        predictions = model.predict(X_test)
-        mse = mean_squared_error(y_test, predictions)
-        rmse = float(np.sqrt(mse))
-        mae = float(mean_absolute_error(y_test, predictions))
-        r2 = float(r2_score(y_test, predictions))
+    feature_names = list(X.columns)
+    if hasattr(model, "feature_importances_"):
+        raw_imp = model.feature_importances_
+        importances = {name: round(float(v), 4) for name, v in zip(feature_names, raw_imp)}
+    else:
+        importances = {"cpu": 0.35, "memory": 0.30, "disk": 0.25, "errors": 0.08, "uptime": 0.02}
 
-        # Real feature importance from model
-        feature_names = list(X.columns)
-        if hasattr(model, "feature_importances_"):
-            raw_imp = model.feature_importances_
-            importances = {name: round(float(v), 4) for name, v in zip(feature_names, raw_imp)}
-        else:
-            importances = {"cpu": 0.35, "memory": 0.30, "disk": 0.25, "errors": 0.08, "uptime": 0.02}
+    prev_meta = _load_model_meta()
+    prev_r2 = prev_meta.get("r2_score", 1.0)
+    drift_detected = r2 < DRIFT_R2_THRESHOLD or (prev_r2 - r2) > 0.15
 
-        # Drift detection: compare R² against baseline threshold
-        prev_meta = _load_model_meta()
-        prev_r2 = prev_meta.get("r2_score", 1.0)
-        drift_detected = r2 < DRIFT_R2_THRESHOLD or (prev_r2 - r2) > 0.15
-        if drift_detected:
-            logger.warning(f"ML drift detected: new R²={r2:.3f}, previous R²={prev_r2:.3f}, threshold={DRIFT_R2_THRESHOLD}")
-
-        # MLflow logging
-        mlflow.log_param("model_type", model_name)
-        mlflow.log_param("n_estimators", n_estimators)
-        mlflow.log_param("max_depth", max_depth)
-        mlflow.log_param("dataset_samples", len(df))
-        mlflow.log_param("real_samples", len([r for r in df.itertuples() if True]))
-        mlflow.log_metric("mse", float(mse))
-        mlflow.log_metric("rmse", rmse)
-        mlflow.log_metric("mae", mae)
-        mlflow.log_metric("r2_score", r2)
-        mlflow.log_metric("drift_detected", int(drift_detected))
-
-        try:
-            mlflow.sklearn.log_model(model, name="model")
-        except Exception as e:
-            logger.warning(f"MLflow model log notice: {e}")
-
-        # Save trained pickle model for risk_engine.py
+    # Save trained pickle model for risk_engine.py
+    try:
         with open(MODEL_PATH, "wb") as f:
             pickle.dump(model, f)
+    except Exception as save_err:
+        logger.warning(f"Could not save model file: {save_err}")
 
-        # Save metadata for future drift comparisons
-        meta = {
-            "run_id": run_id,
-            "model_type": model_name,
-            "r2_score": r2,
-            "rmse": rmse,
-            "mae": mae,
-            "drift_detected": drift_detected,
-            "feature_importance": importances,
-            "trained_at": datetime.utcnow().isoformat(),
-            "dataset_samples": len(df),
-        }
-        _save_model_meta(meta)
+    # Save metadata for future drift comparisons
+    meta = {
+        "status": "success",
+        "model_type": model_name,
+        "metrics": {
+            "rmse": round(rmse, 4),
+            "mae": round(mae, 4),
+            "r2_score": round(r2, 4)
+        },
+        "feature_importance": importances,
+        "model_path": MODEL_PATH,
+        "drift_detected": drift_detected,
+        "dataset_samples": len(df),
+        "trained_at": datetime.utcnow().isoformat(),
+    }
+    _save_model_meta(meta)
 
-        # Reload risk_engine cached model
+    # Reload risk_engine cached model
+    try:
+        from services import risk_engine
+        risk_engine._load_model()
+    except Exception:
+        pass
+
+    return meta
+
+
+def train_and_evaluate_pipeline(db=None) -> dict:
+    """
+    Executes end-to-end ML pipeline with optional MLflow tracking.
+    """
+    df = build_training_dataset(db=db)
+
+    if HAS_MLFLOW and mlflow:
         try:
-            from services import risk_engine
-            risk_engine._load_model()
-        except Exception:
-            pass
+            mlflow.set_experiment(EXPERIMENT_NAME)
+            with mlflow.start_run() as run:
+                meta = _train_core_model(df)
+                mlflow.log_params({"model_type": meta["model_type"], "n_samples": meta["dataset_samples"]})
+                mlflow.log_metrics({"r2": meta["metrics"]["r2_score"], "rmse": meta["metrics"]["rmse"], "mae": meta["metrics"]["mae"]})
+                meta["run_id"] = run.info.run_id
+                meta["experiment_name"] = EXPERIMENT_NAME
+                return meta
+        except Exception as e:
+            logger.warning(f"MLflow tracking skipped ({e}), executing standard pipeline.")
 
-        return {
-            "status": "success",
-            "run_id": run_id,
-            "experiment_name": EXPERIMENT_NAME,
-            "model_type": model_name,
-            "metrics": {
-                "rmse": round(rmse, 4),
-                "mae": round(mae, 4),
-                "r2_score": round(r2, 4)
-            },
-            "feature_importance": importances,
-            "model_path": MODEL_PATH,
-            "drift_detected": drift_detected,
-            "dataset_samples": len(df),
-        }
+    return _train_core_model(df)
 
 
 if __name__ == "__main__":

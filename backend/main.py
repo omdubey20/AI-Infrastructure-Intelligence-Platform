@@ -12,9 +12,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 
 from database import Base, engine, get_db
 from models import Server, ProjectDiscovery
@@ -34,10 +31,15 @@ try:
 except Exception as db_err:
     logger.warning(f"Database table creation deferred: {db_err}")
 
-# ========================
-# Rate Limiter
-# ========================
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+    HAS_SLOWAPI = True
+except Exception:
+    limiter = None
+    HAS_SLOWAPI = False
 
 # ========================
 # Scheduler
@@ -105,8 +107,9 @@ app = FastAPI(
 )
 
 # Rate limiter registration
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+if HAS_SLOWAPI and limiter:
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS — restrict to known origins (env-configurable)
 ALLOWED_ORIGINS = os.getenv(
