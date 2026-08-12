@@ -361,11 +361,23 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
 
 def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
     """Dynamic WHM Server Discovery — queries WHM API listaccts."""
-    whm_host = server.whm_host or server.ip_address or os.getenv("WHM_HOST")
     whm_token = decrypt_credential(server.whm_token) if server.whm_token else os.getenv("WHM_TOKEN")
     whm_port = server.whm_port or int(os.getenv("WHM_PORT", "2087"))
 
-    if whm_host and whm_token:
+    # Build list of WHM hosts to try: server's own host/IP first, then env hostname as fallback
+    # Some servers reject API calls via raw IP but accept them via hostname
+    hosts_to_try = []
+    if server.whm_host:
+        hosts_to_try.append(server.whm_host)
+    if server.ip_address and server.ip_address not in hosts_to_try:
+        hosts_to_try.append(server.ip_address)
+    env_host = os.getenv("WHM_HOST")
+    if env_host and env_host not in hosts_to_try:
+        hosts_to_try.append(env_host)
+
+    for whm_host in hosts_to_try:
+        if not (whm_host and whm_token):
+            continue
         try:
             from services.whm_service import (
                 get_whm_accounts_for_server,
