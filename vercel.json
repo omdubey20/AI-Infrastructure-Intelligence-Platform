@@ -51,8 +51,8 @@
       "destination": "/api/index.py"
     },
     {
-      "source": "/:path*",
-      "destination": "/api/index.py"
+      "source": "/((?!api|auth|servers|projects|cleanup|stats|discovery|whm|ml|ai|audit|health|static).*)",
+      "destination": "/index.html"
     }
   ]
 }
