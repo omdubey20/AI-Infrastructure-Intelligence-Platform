@@ -150,6 +150,19 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+@app.middleware("http")
+async def vercel_path_normalizer(request: Request, call_next):
+    raw_path = request.scope.get("path", "")
+    matched = request.headers.get("x-matched-path", "")
+
+    if matched and matched != raw_path:
+        request.scope["path"] = matched
+    elif raw_path.startswith("/api/index.py"):
+        request.scope["path"] = raw_path.replace("/api/index.py", "") or "/"
+
+    return await call_next(request)
+
+
 # ========================
 # Routers
 # ========================

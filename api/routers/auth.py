@@ -228,6 +228,10 @@ def register(
     "/login",
     response_model=schemas.Token
 )
+@router.post(
+    "/auth/login",
+    response_model=schemas.Token
+)
 @limiter.limit("10/minute")
 def login(
     request: Request,
