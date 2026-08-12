@@ -1,15 +1,9 @@
 import sys
 import os
 
-# Add backend directory to Python sys.path (check multiple possible serverless paths)
-possible_paths = [
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")),
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "backend")),
-    os.path.abspath("backend"),
-]
-
-for p in possible_paths:
-    if os.path.exists(p) and p not in sys.path:
-        sys.path.insert(0, p)
+# Add api directory to sys.path for standalone Vercel Serverless Function execution
+api_dir = os.path.abspath(os.path.dirname(__file__))
+if api_dir not in sys.path:
+    sys.path.insert(0, api_dir)
 
 from main import app
