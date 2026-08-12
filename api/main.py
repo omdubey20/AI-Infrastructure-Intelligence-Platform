@@ -197,14 +197,15 @@ if frontend_build_dir and os.path.exists(os.path.join(frontend_build_dir, "stati
     app.mount("/static", StaticFiles(directory=os.path.join(frontend_build_dir, "static")), name="static")
 
 
-@app.get("/{full_path:path}")
-async def serve_react_app(request: Request, full_path: str):
-    if full_path in ("health", "api/status") or full_path.startswith(("auth", "servers", "projects", "cleanup", "stats", "discovery", "whm", "ml", "ai", "audit", "api")):
-        raise HTTPException(status_code=404, detail="Not Found")
+@app.exception_handler(404)
+async def spa_404_handler(request: Request, exc: Exception):
+    path = request.url.path.lstrip("/")
+    if path in ("health", "api/status") or path.startswith(("auth", "servers", "projects", "cleanup", "stats", "discovery", "whm", "ml", "ai", "audit", "api")):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
 
     if frontend_build_dir:
-        file_path = os.path.join(frontend_build_dir, full_path)
-        if full_path and os.path.isfile(file_path):
+        file_path = os.path.join(frontend_build_dir, path)
+        if path and os.path.isfile(file_path):
             return FileResponse(file_path)
         index_file = os.path.join(frontend_build_dir, "index.html")
         if os.path.exists(index_file):
