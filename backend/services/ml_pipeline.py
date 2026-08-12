@@ -11,7 +11,10 @@ import pickle
 import json
 import logging
 import numpy as np
-import pandas as pd
+try:
+    import pandas as pd
+except Exception:
+    pd = None
 try:
     import mlflow
     import mlflow.sklearn
