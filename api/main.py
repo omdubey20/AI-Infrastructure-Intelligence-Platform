@@ -164,8 +164,20 @@ async def vercel_path_normalizer(request: Request, call_next):
 
 
 # ========================
-# Routers
+# Routers (Dual Mount for /api and direct endpoints)
 # ========================
+app.include_router(auth_router, prefix="/api")
+app.include_router(servers.router, prefix="/api")
+app.include_router(projects.router, prefix="/api")
+app.include_router(cleanup.router, prefix="/api")
+app.include_router(stats.router, prefix="/api")
+app.include_router(discovery.router, prefix="/api")
+app.include_router(whm.router, prefix="/api")
+app.include_router(ml.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")
+app.include_router(audit.router, prefix="/api")
+app.include_router(dashboard_spec.router, prefix="/api")
+
 app.include_router(auth_router)
 app.include_router(servers.router)
 app.include_router(projects.router)
