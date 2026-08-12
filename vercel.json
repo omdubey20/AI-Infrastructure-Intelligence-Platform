@@ -3,56 +3,8 @@
   "outputDirectory": "frontend/build",
   "rewrites": [
     {
-      "source": "/api/:path*",
+      "source": "/(.*)",
       "destination": "/api/index.py"
-    },
-    {
-      "source": "/auth/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/servers/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/projects/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/cleanup/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/stats/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/discovery/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/whm/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/ml/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/ai/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/audit/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/health",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/((?!api|auth|servers|projects|cleanup|stats|discovery|whm|ml|ai|audit|health|static).*)",
-      "destination": "/index.html"
     }
   ]
 }
