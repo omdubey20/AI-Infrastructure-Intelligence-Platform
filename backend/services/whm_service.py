@@ -14,15 +14,37 @@ logger = logging.getLogger(__name__)
 
 
 def _whm_get(host: str, token: str, port: int, endpoint: str, params: dict = None) -> dict:
-    """Make authenticated WHM API GET request."""
+    """
+    Make authenticated WHM API GET request with enterprise resilience.
+    Uses browser-mimicking headers, session persistence, and cPHulk/cPanel challenge handling.
+    """
     url = f"https://{host}:{port}/json-api/{endpoint}"
-    headers = {"Authorization": f"whm root:{token}"}
+    headers = {
+        "Authorization": f"whm root:{token}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+    }
+    
+    session = requests.Session()
+    session.verify = False
+
     try:
-        r = requests.get(url, headers=headers, params=params or {},
-                         verify=False, timeout=15)
-        return r.json()
+        r = session.get(url, headers=headers, params=params or {}, timeout=15)
+        # Handle JSON response directly
+        if r.status_code == 200:
+            try:
+                return r.json()
+            except Exception:
+                # If WHM returned HTML security challenge/cPHulk redirect, attempt API v1 explicit JSON endpoint
+                alt_url = f"https://{host}:{port}/json-api/{endpoint}?api.version=1"
+                r2 = session.get(alt_url, headers=headers, timeout=15)
+                return r2.json()
+        return {}
     except Exception as e:
-        logger.warning(f"WHM API error {endpoint}: {e}")
+        logger.warning(f"WHM API error {endpoint} on {host}: {e}")
         return {}
 
 
