@@ -14,8 +14,8 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from database import Base, engine, get_db
-from models import Server, ProjectDiscovery
+from database import Base, engine, get_db, SessionLocal
+from models import Server, ProjectDiscovery, User
 from services.server_scanner import scan_server_projects
 from services.ai_insights_engine import generate_all_insights
 from services.duplicate_detector import detect_duplicates
@@ -31,6 +31,30 @@ try:
     Base.metadata.create_all(bind=engine, checkfirst=True)
 except Exception as db_err:
     logger.warning(f"Database table creation deferred: {db_err}")
+
+
+def ensure_default_user():
+    """Auto-seed default admin user if user table is empty."""
+    try:
+        db = SessionLocal()
+        if db.query(User).count() == 0:
+            from routers.auth import hash_password
+            admin_user = User(
+                username="admin",
+                email="admin@platform.local",
+                hashed_password=hash_password("admin123"),
+                role="admin",
+                is_active=True
+            )
+            db.add(admin_user)
+            db.commit()
+            logger.info("Default admin user auto-seeded: admin / admin123")
+        db.close()
+    except Exception as e:
+        logger.warning(f"Default user check deferred: {e}")
+
+
+ensure_default_user()
 
 try:
     from slowapi import Limiter, _rate_limit_exceeded_handler
