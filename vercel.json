@@ -1,13 +1,18 @@
 {
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/build",
+  "functions": {
+    "api/index.py": {
+      "memory": 1024
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     },
     {
-      "source": "/((?!api).*)",
+      "source": "/((?!api|static).*)",
       "destination": "/index.html"
     }
   ]
