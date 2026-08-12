@@ -43,75 +43,7 @@ SKIP_PREFIXES = (
     "cpcontacts.", "autodiscover.", "ftp.", "whm.", "cpsess",
 )
 
-INACTIVE_DOMAINS = set()
 
-# Exact 168 unique cPanel accounts list for Server C
-SERVER_C_ACCOUNT_DOMAINS = [
-    ('university', 'universityofisleofman.org'), ('workingwomenawar', 'workingwomenawards.com'), ('marcinfitness', 'marcinfitness.com'),
-    ('speecoorg', 'speeco.org.uk'), ('golfteetime', 'golfteetime.co.uk'), ('communicare', 'communicareinsouthampton.org.uk'),
-    ('asklrc', 'asklrc.co.uk'), ('umamistreetfoods', 'umamistreetfoods.co.uk'), ('thejamesshoe', 'thejamesshoe.com'),
-    ('chreadmin', 'chre-uk.com'), ('magdisco', 'magdis.co.uk'), ('idunow', 'idunow.com'),
-    ('venturecreations', 'venturecreations.co.uk'), ('officefurniture', 'officefurnituresolutions.co.uk'), ('geecontech', 'geecontechnology.com'),
-    ('studiogeecon', 'studio.geeconlearnings.co.in'), ('santoshkumar', 'santoshkumar.live'), ('isleofmanexpo', 'isleofmanexpo.com'),
-    ('bushidodoubler', 'bushidodoubler.org'), ('completesales', 'completesalesexpo.com'), ('facecouk', 'facewebinar.co.uk'),
-    ('thepublishinghub', 'thepublishinghub.co.uk'), ('restaurantsonweb', 'restaurantsonweb.com'), ('odootechnology', 'odootechnology.com'),
-    ('foodhealthlife', 'foodhealthandlifestyleexpo.com'), ('futurefacetech', 'futurefacetech.com'), ('redcellpathlab', 'redcellpathlab.com'),
-    ('south', 'southamptonbusinessawards.com'), ('event24seven', 'event24seven.com'), ('southamptonbusin', 'southamptonbusinessexpo.co.uk'),
-    ('dubaiglobalbusin', 'dubaiglobalbusinessexpo.com'), ('internationalsho', 'internationalpropertycircleshow.com'), ('startupcreationo', 'startupcreation.org'),
-    ('thisiswestsid', 'thisiswestside.com'), ('omkarapaneer', 'omkarapaneer.com'), ('bournemouthbusin', 'bournemouthbusinessleadersaward.com'),
-    ('thecodclub', 'thecodclub.uk'), ('himachalholidays', 'himachalholidays.co.uk'), ('greenvalleyinfin', 'greenvalleyinfinity.org'),
-    ('mweppartners', 'mweppartners.com'), ('audiencecreation', 'audiencecreation.co.uk'), ('bluesapphirehote', 'bluesapphirehotel.co.uk'),
-    ('saharasecurityse', 'saharasecurityservices.com'), ('nagendramishra', 'nagendramishra.co.uk'), ('b2bexpoorg', 'b2bexpo.org'),
-    ('rowadminmydevsys', 'rowadmin.mydevsystems.com'), ('villagemags', 'villagemags.co.uk'), ('ashfordmotors', 'ashfordmotors.com'),
-    ('visionstovictory', 'visionstovictory.com'), ('bestbritishbusin', 'bestbritishbusinessawards.com'), ('uaeglobalshow', 'uaeglobalbusinessshow.com'),
-    ('visionscreation', 'visionscreation.com'), ('hybridexpo', 'hybridworkingexpo.com'), ('unity101events', 'unity101events.org'),
-    ('floracoiffure', 'floracoiffure.com'), ('b2bgrowthexpo', 'b2bgrowthexpo.com'), ('smecreationco', 'smecreation.co.uk'),
-    ('supercleanings', 'supercleanings.co.uk'), ('ideacreation', 'ideacreation.org'), ('gmcfinance', 'gmcfinance.co.uk'),
-    ('crmtillu', 'crm.tillu.co.uk'), ('debunkingsuccess', 'debunkingsuccessmyths.com'), ('venturetraining', 'venturecreationtraining.co.uk'),
-    ('mishi', 'mishi.london'), ('rootalrahmah', 'alrahmahcd.org'), ('businessreviews', 'businessreviewsonweb.com'),
-    ('cardiffbusinesse', 'cardiffbusinessexpo.com'), ('unityshiftmydev', 'unityshift.mydevsystems.com'), ('omisspice', 'omisspice.com'),
-    ('geeconweb', 'geeconweb.geeconglobal.com'), ('theventurecrea', 'theventurecreation.com'), ('crm360degree', 'crm360degree.com'),
-    ('modestoexhibitio', 'modestoexhibitions.com'), ('oblecorg', 'oblec.org.uk'), ('microcreationco', 'microcreation.co.uk'),
-    ('miltonkeynesbusi', 'miltonkeynesbusinessexpo.com'), ('businesscreation', 'businesscreations.co.uk'), ('instacreationco', 'instacreation.co.uk'),
-    ('londonbusinessaw', 'londonbusinessaward.com'), ('hampshirebusines', 'hampshirebusinessaward.com'), ('venturecreationm', 'venturecreationmastermind.com'),
-    ('fototrendz', 'fototrendz.co.uk'), ('staffco', '101staff.co.uk'), ('southamptoncurry', 'southamptoncurryexpress.com'),
-    ('carscrapwrays', 'carscrapwraysbury.com'), ('digitalageexpoco', 'digitalageexpo.co.uk'), ('admin4max', 'maxcleaningenviro.com'),
-    ('frontiertechxorg', 'frontiertechx.org.uk'), ('virtualnetwork', 'virtualnetworkings.com'), ('taxforensic', 'taxforensic.com'),
-    ('wishpersofwisdom', 'wishpersofwisdom.com'), ('theteamcanada', 'theteamcanada.com'), ('kjurislaw', 'kjurislaw.com'),
-    ('factoryfreshuk', 'thefactoryfresh.co.uk'), ('acharilounge', 'acharilounge.com'), ('southhuptonbusin', 'southamptonbusinessexpo.com'),
-    ('hospitalityshow', 'internationalhospitalityshow.com'), ('linearproperties', 'linear-properties.com'), ('unity101', 'unity101.org'),
-    ('syncmy', 'syncmydocs.com'), ('prolashes', '3dprolashes.com'), ('rowcp', 'rowcp.mydevsystems.com'),
-    ('jamesseilo', 'jamesseilo.com'), ('uaeglobalbusines', 'uaeglobalbusinessexpo.com'), ('bannerpressco', 'bannerpress.co.uk'),
-    ('tideandseekadmin', 'tideandseektravel.com'), ('imovelondon', 'imovelondon.uk'), ('gvitrainingadmin', 'gvitraininginstitute.com'),
-    ('thecurryclub', 'thecurryclub.uk'), ('narrativenetwork', 'narrativenetworkfilms.com'), ('emonstakeaway', 'emonsindiantakeaway.co'),
-    ('qualityassurance', 'thequalityassurance.com'), ('iconicinfluencer', 'iconicinfluencerawards.com'), ('whispersofwisdom', 'whispersofwisdom.co.uk'),
-    ('londoncarrental', 'lcr.co.uk'), ('feedbackvalue', 'feedbackvalue.com'), ('communicationtec', 'communicationtechnologyexpo.com'),
-    ('linkcreationco', 'linkcreation.co.uk'), ('mileageboss', 'mileageboss.com'), ('eurostonetiles', 'eurostonetiles.co.uk'),
-    ('southcoast', 'southcoastclearanceservices.com'), ('mydmsoncloud', 'mydmsoncloud.com'), ('celebadda', 'celebadda.com'),
-    ('wwwsimongreenhil', 'simongreenhill.com'), ('officefurnitures', 'officefurnituresonlines.com'), ('restaurantonweb', 'restaurantonweb.mydevsystems.com'),
-    ('portsmouthbusine', 'portsmouthbusinessshow.com'), ('jujoohosting', 'jujoohosting.com'), ('headlines', 'headlinesadvertising.com'),
-    ('keysaspects', 'keysaspects.com'), ('yellowsandstech', 'yellowsandstechnologies.com'), ('venturecreationb', 'venturecreationbootcamp.com'),
-    ('invoice', 'invoicemadesimple.com'), ('outboundme', 'outbound.me.uk'), ('portal3dprolashe', 'portal.3dprolashes.com'),
-    ('internationalsta', 'internationalstartupshow.com'), ('smecreation', 'smecreation.com'), ('dubaiglobalshow', 'dubaiglobalbusinessshow.com'),
-    ('mediaandinfluen', 'mediaandinfluencerexpo.com'), ('connectlocal', 'businessconnectorslocal.com'), ('smecreationorg', 'smecreation.org'),
-    ('fundersnfounders', 'fundersandfoundersshow.com'), ('corporateexpo', 'corporatewellbeingexpo.com'), ('rootthebigfesti', 'thebigplatinumfestival.org'),
-    ('businessinexpo', 'businessinnovationexpo.com'), ('imperialitiom', 'imperialit.im'), ('harmonyholiday', 'harmonyholidayhomes.com'),
-    ('birminghambusine', 'birminghambusinessexpo.com'), ('doctorondemand', 'doctorondemand.uk'), ('salesleadmachine', 'salesleadmachine.co.uk'),
-    ('geeconlearnings', 'geeconlearnings.co.in'), ('shoutoutdev', 'shoutout.mydevsystems.com'), ('tuvaaadmin', 'tuvaa.org.uk'),
-    ('miltonkeynesex', 'miltonkeynesexpo.com'), ('holidayhomesco', 'holidayhomes.co.in'), ('topsoluadmin', 'topsolutionsrecruitment.co.uk'),
-    ('greenbarandevent', 'greenhill-events.com'), ('doctorsondemandc', 'doctorsondemand.co.uk'), ('leygreenfarmhous', 'leygreenfarmhouse.com'),
-    ('royalindiancurry', 'royalindiancurryclub.com'), ('legacyofleadersh', 'legacyofleadershipaward.com'), ('treatyourpetz', 'treatyourpetz.co.uk'),
-    ('startupcreation', 'startupcreation.co.uk'), ('completelive', 'completemarketinglive.com'), ('facecreation', 'facecreation.co.uk'),
-    ('jagstrophiesco', 'jagstrophies.co.uk'), ('crhermanasco', 'crhermanas.com'), ('businessrevivals', 'businessrivalseries.uk')
-]
-
-SERVER_B_PROJECTS = [
-    ("backup", "backup.com"), ("britishfurnitures", "britishfurnitures.co.uk"),
-    ("catertool", "catertool.mydevsystems.com"), ("devthingstodo", "dev.thingstodopad.com"),
-    ("meetsmydevsys", "meets.mydevsystems.com"), ("mydevsystems", "mydevsystems.com"),
-    ("myuatportals", "myuatportals.com"), ("myuatsystems", "myuatsystems.com"),
-    ("ourowncloud", "ourowncloud.com"), ("sharespare", "sharespare.com")
-]
 
 
 def _clear_server_discoveries(db, server_id: int):
@@ -428,12 +360,10 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
 
 
 def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
-    """100% Dynamic WHM Server Discovery — queries WHM API listaccts for any real server."""
+    """Dynamic WHM Server Discovery — queries WHM API listaccts."""
     whm_host = server.whm_host or server.ip_address or os.getenv("WHM_HOST")
     whm_token = decrypt_credential(server.whm_token) if server.whm_token else os.getenv("WHM_TOKEN")
     whm_port = server.whm_port or int(os.getenv("WHM_PORT", "2087"))
-
-    is_server_c = server.ip_address == "185.220.63.56" or "c" in (server.name or "").lower() or "3" in (server.name or "").lower()
 
     if whm_host and whm_token:
         try:
@@ -474,9 +404,6 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                         seen_users.add(u)
                         unique_accts.append(acc)
 
-                # Cap at 168 accounts if WHM listaccts returns extra reseller/sub-accounts for Server C
-                if is_server_c and len(unique_accts) > 168:
-                    unique_accts = unique_accts[:168]
 
                 _clear_server_discoveries(db, server.id)
                 created_count = 0
@@ -487,8 +414,8 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                     domain_name = primary_domain or username
                     proj_path = f"/home/{username}/public_html" if username else "/var/www/html"
 
-                    # DYNAMIC SUSPENDED CHECK FOR ANY NEW SERVER (uses WHM acc.get("suspended") flag)
-                    is_suspended = (idx < 65) if is_server_c else bool(acc.get("suspended"))
+                    # Use real WHM suspended flag for all servers
+                    is_suspended = bool(acc.get("suspended"))
 
                     disk_used_mb = _safe_int(acc.get("diskused", 100))
                     disk_limit_mb = _safe_int(acc.get("disklimit", 5000))
@@ -520,82 +447,23 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                 job.projects_found = len(unique_accts)
                 return {"ssh_connected": False, "whm_connected": True, "projects_found": len(unique_accts), "data_source": "whm"}
         except Exception as e:
-            logger.warning(f"WHM scan notice for {server.name}: {e}")
+            logger.warning(f"WHM scan failed for {server.name}: {e}")
 
-    # Fallback Profile Engine for benchmark servers A, B, C
+    # No SSH and no WHM — report honest failure
     server.last_scanned_at = datetime.utcnow()
-    server.scan_status = "success"
-    server.scan_error = None
-    server.data_source = server.data_source or "whm"
+    server.scan_status = "no_credentials"
+    server.scan_error = "Neither SSH nor WHM credentials are configured or both connections failed."
+    server.data_source = "none"
     server.risk_score = calculate_server_risk(server)
     db.commit()
 
-    ip_str = (server.ip_address or "").strip()
-    name_str = (server.name or "").strip().lower()
-
-    target_accts = []
-
-    if is_server_c:
-        server.cpu_usage = server.cpu_usage or 95
-        server.memory_usage = server.memory_usage or 95
-        server.disk_usage = server.disk_usage or 35
-        target_accts = SERVER_C_ACCOUNT_DOMAINS
-    elif ip_str == "82.25.27.52" or "b" in name_str or "2" in name_str:
-        server.cpu_usage = server.cpu_usage or 10
-        server.memory_usage = server.memory_usage or 20
-        server.disk_usage = server.disk_usage or 35
-        target_accts = SERVER_B_PROJECTS
-    elif ip_str == "212.48.85.72" or "a" in name_str or "1" in name_str:
-        server.cpu_usage = server.cpu_usage or 15
-        server.memory_usage = server.memory_usage or 25
-        server.disk_usage = server.disk_usage or 35
-        target_accts = [("business", "businessrivalseries.uk")]
-    else:
-        # Dynamic fallback for generic new servers without active WHM token or SSH
-        target_accts = [
-            (f"app_{name_str}_1", f"app1.{name_str}.com"),
-            (f"app_{name_str}_2", f"app2.{name_str}.com"),
-            (f"api_{name_str}", f"api.{name_str}.com"),
-            (f"portal_{name_str}", f"portal.{name_str}.com"),
-            (f"web_{name_str}", f"{name_str}.com"),
-        ]
-
-    _clear_server_discoveries(db, server.id)
-    created_count = 0
-
-    for idx, (user, domain) in enumerate(target_accts):
-        is_suspended = (idx < 65) if is_server_c else False
-
-        proj_data = {
-            "name": domain,
-            "domain": domain,
-            "path": f"/home/{user}/public_html",
-            "owner": user,
-            "framework": "php",
-            "language": "php",
-            "dns_points_here": not is_suspended,
-            "web_config_active": not is_suspended,
-            "has_ssl": not is_suspended,
-            "ssl_expiry_days": None if is_suspended else 60,
-            "days_since_modified": 1120 if is_suspended else 10,
-            "is_live": not is_suspended,
-            "is_inactive": is_suspended,
-            "env_type": "archived" if is_suspended else "live",
-            "risk_score": 45 if is_suspended else 15,
-            "data_source": "whm",
-        }
-        upsert_discovery(db, server.id, proj_data)
-        created_count += 1
-
-    db.commit()
-
-    job.data_source = "whm"
-    job.projects_found = len(target_accts)
+    job.data_source = "none"
+    job.projects_found = 0
 
     return {
         "ssh_connected": False,
-        "projects_found": len(target_accts),
-        "projects_created": created_count,
-        "status": "whm_discovery_completed",
-        "data_source": "whm",
+        "whm_connected": False,
+        "projects_found": 0,
+        "status": "no_credentials",
+        "data_source": "none",
     }
