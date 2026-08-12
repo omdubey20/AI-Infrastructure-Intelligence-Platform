@@ -29,7 +29,10 @@ from routers.auth import router as auth_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend.main")
 
-Base.metadata.create_all(bind=engine, checkfirst=True)
+try:
+    Base.metadata.create_all(bind=engine, checkfirst=True)
+except Exception as db_err:
+    logger.warning(f"Database table creation deferred: {db_err}")
 
 # ========================
 # Rate Limiter
@@ -69,20 +72,27 @@ def hourly_sync_job():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    scheduler.add_job(
-        hourly_sync_job,
-        "interval",
-        hours=1,
-        id="hourly_sync",
-        misfire_grace_time=300,       # Allow 5-min late execution
-        max_instances=1,              # Prevent overlapping runs
-        coalesce=True,                # Merge missed runs into one
-    )
-    scheduler.start()
-    logger.info("APScheduler started — hourly background sync active.")
+    if not (os.getenv("VERCEL") or os.getenv("VERCEL_ENV")):
+        try:
+            scheduler.add_job(
+                hourly_sync_job,
+                "interval",
+                hours=1,
+                id="hourly_sync",
+                misfire_grace_time=300,       # Allow 5-min late execution
+                max_instances=1,              # Prevent overlapping runs
+                coalesce=True,                # Merge missed runs into one
+            )
+            scheduler.start()
+            logger.info("APScheduler started — hourly background sync active.")
+        except Exception as sched_err:
+            logger.warning(f"APScheduler skipped: {sched_err}")
     yield
-    scheduler.shutdown()
-    logger.info("APScheduler stopped.")
+    if not (os.getenv("VERCEL") or os.getenv("VERCEL_ENV")):
+        try:
+            scheduler.shutdown()
+        except Exception:
+            pass
 
 
 # ========================
