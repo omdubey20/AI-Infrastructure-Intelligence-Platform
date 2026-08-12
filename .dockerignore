@@ -6,6 +6,8 @@ backend/venv
 backend/__pycache__
 backend/tests
 *.db
+mlruns
+infra_intel.db
+mlflow.db
 .DS_Store
-Dockerfile
 README.md
