@@ -35,7 +35,7 @@ python-multipart==0.0.9
 # force redeploy
 requests==2.32.3
 scikit-learn==1.7.0
-numpy==2.3.0
+numpy==1.26.4
 pandas==2.2.2
 joblib==1.4.2
 matplotlib==3.9.2
