@@ -138,16 +138,18 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS — flexible origins for Railway and multi-domain environments
-raw_origins = os.getenv("CORS_ORIGINS", "*")
-if "*" in raw_origins or not raw_origins.strip():
-    allowed_origins = ["*"]
-else:
-    allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Server Error: {str(exc)}"}
+    )
 
+# CORS — regex origin matching ensures valid Access-Control-Allow-Origin with credentials across all environments
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origin_regex=".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
