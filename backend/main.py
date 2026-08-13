@@ -29,8 +29,45 @@ from routers.auth import router as auth_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend.main")
 
+def ensure_default_admin():
+    db = next(get_db())
+    try:
+        from models import User
+        from routers.auth import hash_password
+        if db.query(User).count() == 0:
+            logger.info("Database has no users. Seeding default users...")
+            admin_user = User(
+                username="admin",
+                email="admin@platform.local",
+                hashed_password=hash_password("admin123"),
+                role="admin",
+                is_active=True
+            )
+            devops_user = User(
+                username="devops",
+                email="devops@platform.local",
+                hashed_password=hash_password("devops123"),
+                role="devops",
+                is_active=True
+            )
+            viewer_user = User(
+                username="viewer",
+                email="viewer@platform.local",
+                hashed_password=hash_password("viewer123"),
+                role="viewer",
+                is_active=True
+            )
+            db.add_all([admin_user, devops_user, viewer_user])
+            db.commit()
+            logger.info("Default users created successfully (admin / admin123).")
+    except Exception as e:
+        logger.warning(f"Default admin user check notice: {e}")
+    finally:
+        db.close()
+
 try:
     Base.metadata.create_all(bind=engine, checkfirst=True)
+    ensure_default_admin()
 except Exception as db_init_err:
     logger.warning(f"Database initialization notice on startup: {db_init_err}")
 

@@ -25,7 +25,8 @@ export default function Login() {
       login(res.data.access_token);
       window.location.href = "/dashboard";
     } catch (err) {
-      setError(err?.response?.data?.detail || "Invalid username or password");
+      const serverMsg = err?.response?.data?.detail || err?.response?.data?.error || err?.message;
+      setError(serverMsg || "Invalid username or password");
     } finally {
       setLoading(false);
     }
