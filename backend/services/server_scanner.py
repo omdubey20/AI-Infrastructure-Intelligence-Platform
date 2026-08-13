@@ -293,12 +293,21 @@ def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:
     except Exception as e:
         logger.error(f"Scan error for server {server.name}: {e}", exc_info=True)
         db.rollback()
-        server.scan_status = "error"
-        server.scan_error = str(e)[:500]
-        job.status = "error"
-        job.error_message = str(e)[:500]
-        job.finished_at = datetime.utcnow()
-        db.commit()
+        try:
+            srv = db.query(Server).get(server.id)
+            jb = db.query(ScanJob).get(job.id) if (job and getattr(job, "id", None)) else None
+            if srv:
+                srv.scan_status = "error"
+                srv.scan_error = str(e)[:500]
+                srv.last_scanned_at = datetime.utcnow()
+            if jb:
+                jb.status = "error"
+                jb.error_message = str(e)[:500]
+                jb.finished_at = datetime.utcnow()
+            db.commit()
+        except Exception as commit_err:
+            logger.warning(f"Failed to record error state on server: {commit_err}")
+            db.rollback()
         return {"ssh_connected": False, "projects_found": 0, "error": str(e)}
 
 
@@ -470,23 +479,32 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
             logger.warning(f"WHM scan failed for {server.name}: {e}")
             last_error = str(e)
 
-    # No SSH and no WHM connection — report explicit diagnostic failure
-    server.last_scanned_at = datetime.utcnow()
-    server.scan_status = "error" if last_error else "no_credentials"
-    server.scan_error = last_error or "Neither SSH nor WHM credentials are configured or both connections failed."
-    server.data_source = "none"
-    server.risk_score = calculate_server_risk(server)
-    db.commit()
+    # No SSH and no WHM connection — report explicit diagnostic failure safely
+    db.rollback()
+    srv = db.query(Server).filter(Server.id == server.id).first()
+    jb = db.query(ScanJob).filter(ScanJob.id == job.id).first() if (job and getattr(job, "id", None)) else None
 
-    job.data_source = "none"
-    job.projects_found = 0
-    job.error_message = server.scan_error
+    target_srv = srv or server
+    target_srv.last_scanned_at = datetime.utcnow()
+    target_srv.scan_status = "error" if last_error else "no_credentials"
+    target_srv.scan_error = last_error or "Neither SSH nor WHM credentials are configured or both connections failed."
+    target_srv.data_source = "none"
+    target_srv.risk_score = calculate_server_risk(target_srv)
+
+    if jb:
+        jb.data_source = "none"
+        jb.projects_found = 0
+        jb.error_message = target_srv.scan_error
+        jb.status = target_srv.scan_status
+        jb.finished_at = datetime.utcnow()
+
+    db.commit()
 
     return {
         "ssh_connected": False,
         "whm_connected": False,
         "projects_found": 0,
-        "status": server.scan_status,
-        "error": server.scan_error,
+        "status": target_srv.scan_status,
+        "error": target_srv.scan_error,
         "data_source": "none",
     }
