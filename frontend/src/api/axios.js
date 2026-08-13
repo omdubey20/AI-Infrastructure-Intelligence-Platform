@@ -1,6 +1,16 @@
 import axios from 'axios';
 
-const api = axios.create({ baseURL: process.env.REACT_APP_API_URL || '' });
+const getBaseURL = () => {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
+    }
+  }
+  return '';
+};
+
+const api = axios.create({ baseURL: getBaseURL() });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
