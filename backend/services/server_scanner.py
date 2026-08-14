@@ -376,6 +376,20 @@ def _clear_server_discoveries(db, server_id: int):
         db.commit()
 
 
+def is_account_suspended(acc: dict) -> bool:
+    """Accurately detect if a cPanel account is suspended across all WHM return formats (int, str, bool, suspendreason)."""
+    val = acc.get("suspended")
+    if val is True or val == 1 or str(val).strip() == "1" or str(val).strip().lower() == "true":
+        return True
+    reason = acc.get("suspendreason")
+    if reason and str(reason).strip().lower() not in ("none", "null", "false", "", "0", "-"):
+        return True
+    suspend_time = acc.get("suspendtime")
+    if suspend_time and str(suspend_time).strip() not in ("0", "", "none", "null"):
+        return True
+    return False
+
+
 def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
     """Dynamic WHM Server Discovery — queries WHM API listaccts for all servers. Zero fallback data."""
     whm_token = decrypt_credential(server.whm_token) if server.whm_token else os.getenv("WHM_TOKEN")
@@ -408,20 +422,22 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
 
             accts = raw_res.get("data", {}).get("acct", []) if isinstance(raw_res, dict) else []
             if accts:
-                loads = get_server_load(whm_host, whm_token, whm_port)
-                disk_pct = get_server_disk(whm_host, whm_token, whm_port)
+                # If 24/7 Agent is active, PRESERVE the agent's exact live kernel metrics!
+                if not (server.agent_installed or server.data_source == "agent"):
+                    loads = get_server_load(whm_host, whm_token, whm_port)
+                    disk_pct = get_server_disk(whm_host, whm_token, whm_port)
+                    load1 = loads.get("load_1", 0.0)
+                    load5 = loads.get("load_5", 0.0)
+                    load15 = loads.get("load_15", 0.0)
 
-                load1 = loads.get("load_1", 0.0)
-                load5 = loads.get("load_5", 0.0)
-                load15 = loads.get("load_15", 0.0)
+                    server.load_avg_1 = load1
+                    server.load_avg_5 = load5
+                    server.load_avg_15 = load15
+                    server.cpu_usage = min(95, max(5, int(load1 * 25))) if load1 > 0 else (server.cpu_usage or 15)
+                    server.memory_usage = min(95, max(10, int(load5 * 20))) if load5 > 0 else (server.memory_usage or 35)
+                    server.disk_usage = disk_pct if disk_pct > 0 else (server.disk_usage or 35)
+                    server.data_source = "whm"
 
-                server.load_avg_1 = load1
-                server.load_avg_5 = load5
-                server.load_avg_15 = load15
-                server.cpu_usage = min(95, max(5, int(load1 * 25))) if load1 > 0 else (server.cpu_usage or 15)
-                server.memory_usage = min(95, max(10, int(load5 * 20))) if load5 > 0 else (server.memory_usage or 35)
-                server.disk_usage = disk_pct if disk_pct > 0 else (server.disk_usage or 35)
-                server.data_source = "whm"
                 server.status = "active"
                 server.scan_status = "success"
                 server.scan_error = None
@@ -432,8 +448,8 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                 seen_users = set()
                 unique_accts = []
                 for acc in accts:
-                    # Exclude suspended accounts completely
-                    if bool(acc.get("suspended")):
+                    # Filter out all suspended cPanel accounts cleanly
+                    if is_account_suspended(acc):
                         continue
                     u = acc.get("user", "").strip()
                     if u and u not in seen_users:
@@ -444,7 +460,7 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                 created_count = 0
 
                 for idx, acc in enumerate(unique_accts):
-                    if bool(acc.get("suspended")):
+                    if is_account_suspended(acc):
                         continue
 
                     username = acc.get("user", "").strip()
@@ -476,7 +492,7 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                     created_count += 1
 
                 db.commit()
-                job.data_source = "whm"
+                job.data_source = server.data_source or "whm"
                 job.projects_found = len(unique_accts)
                 return {"ssh_connected": False, "whm_connected": True, "projects_found": len(unique_accts), "data_source": "whm"}
         except Exception as e:

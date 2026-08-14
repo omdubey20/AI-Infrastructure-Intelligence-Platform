@@ -88,6 +88,19 @@ def run_schema_migrations():
                     conn.execute(text(stmt))
                 except Exception as migration_stmt_err:
                     logger.debug(f"Schema migration statement notice ({stmt}): {migration_stmt_err}")
+
+            # Auto-cleanup any duplicate open alerts that may have accumulated
+            try:
+                conn.execute(text("""
+                    DELETE FROM security_alerts a USING security_alerts b
+                    WHERE a.id < b.id 
+                    AND a.target_name = b.target_name 
+                    AND a.category = b.category 
+                    AND a.is_resolved = FALSE 
+                    AND b.is_resolved = FALSE;
+                """))
+            except Exception:
+                pass
         logger.info("Schema migrations verified successfully.")
     except Exception as migration_err:
         logger.warning(f"Schema migration general notice: {migration_err}")

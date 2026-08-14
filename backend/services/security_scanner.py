@@ -38,6 +38,8 @@ def audit_server_security(db, server) -> list:
     """Run comprehensive security audit on a server."""
     alerts_generated = []
 
+    from models import SecurityAlert
+
     # 1. Disk Full Warning (>85% Warning, >90% Critical)
     disk_pct = server.disk_usage or 0
     if disk_pct >= 90:
@@ -66,6 +68,14 @@ def audit_server_security(db, server) -> list:
             recommendation="Review high-consumption accounts and clean up archived backups.",
         )
         alerts_generated.append("High Disk Usage Warning (>85%)")
+    else:
+        # Auto-resolve disk alerts when usage drops below 85%
+        db.query(SecurityAlert).filter(
+            SecurityAlert.target_name == server.name,
+            SecurityAlert.category == "DISK_FULL",
+            SecurityAlert.is_resolved == False
+        ).update({"is_resolved": True, "resolved_at": datetime.utcnow()})
+        db.commit()
 
     # 2. CPU / Memory Overload
     cpu_pct = server.cpu_usage or 0
@@ -83,6 +93,14 @@ def audit_server_security(db, server) -> list:
             recommendation="Inspect high-CPU processes (top / htop) and review MySQL slow query logs.",
         )
         alerts_generated.append("Resource Overload Alert")
+    else:
+        # Auto-resolve resource overload when load drops
+        db.query(SecurityAlert).filter(
+            SecurityAlert.target_name == server.name,
+            SecurityAlert.category == "RESOURCE_OVERLOAD",
+            SecurityAlert.is_resolved == False
+        ).update({"is_resolved": True, "resolved_at": datetime.utcnow()})
+        db.commit()
 
     # 3. Open Dangerous Ports
     if server.open_ports:

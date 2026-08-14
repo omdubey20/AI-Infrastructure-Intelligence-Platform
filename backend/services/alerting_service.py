@@ -135,22 +135,36 @@ def notify_alert(db, category: str, target_name: str, title: str, description: s
 
     _alert_cache[alert_key] = now
 
-    # 1. Record SecurityAlert in Database
+    # 1. Deduplicate & Record/Update SecurityAlert in Database
     try:
-        alert = SecurityAlert(
-            target_type=target_type,
-            target_id=target_id,
-            target_name=target_name,
-            severity=severity,
-            category=category,
-            title=title,
-            description=description,
-            recommendation=recommendation or "Investigate and resolve infrastructure risk.",
-            is_resolved=False,
-            created_at=now,
-        )
-        db.add(alert)
-        db.commit()
+        existing_alert = db.query(SecurityAlert).filter(
+            SecurityAlert.target_name == target_name,
+            SecurityAlert.category == category,
+            SecurityAlert.is_resolved == False
+        ).first()
+
+        if existing_alert:
+            existing_alert.title = title
+            existing_alert.description = description
+            existing_alert.severity = severity
+            if recommendation:
+                existing_alert.recommendation = recommendation
+            db.commit()
+        else:
+            alert = SecurityAlert(
+                target_type=target_type,
+                target_id=target_id,
+                target_name=target_name,
+                severity=severity,
+                category=category,
+                title=title,
+                description=description,
+                recommendation=recommendation or "Investigate and resolve infrastructure risk.",
+                is_resolved=False,
+                created_at=now,
+            )
+            db.add(alert)
+            db.commit()
     except Exception as e:
         logger.warning(f"Failed to record SecurityAlert in database: {e}")
         db.rollback()
