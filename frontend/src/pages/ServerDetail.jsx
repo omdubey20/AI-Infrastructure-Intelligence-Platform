@@ -151,8 +151,8 @@ export default function ServerDetail() {
                     </td>
                     <td style={{ fontFamily: "monospace", color: "#64748b", fontSize: "12px" }}>{p.path}</td>
                     <td>
-                      <span className={p.is_live && !p.is_inactive ? "badge badge-green" : "badge badge-red"}>
-                        {p.is_live && !p.is_inactive ? "● Active (Live)" : "● Suspended (Not Live)"}
+                      <span className="badge badge-green">
+                        ● Active (Live)
                       </span>
                     </td>
 

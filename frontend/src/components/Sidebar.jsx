@@ -5,9 +5,9 @@ const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: "📊" },
   { path: "/servers", label: "Servers", icon: "🖥️" },
   { path: "/projects", label: "Projects", icon: "📁" },
+  { path: "/monitoring", label: "Website Monitoring", icon: "📈" },
+  { path: "/security", label: "Security & Alerts", icon: "🛡️" },
   { path: "/duplicates", label: "Duplicates", icon: "👯" },
-  { path: "/inactive", label: "3-Yr Inactive", icon: "⏳" },
-  { path: "/cleanup", label: "Cleanup Queue", icon: "🧹" },
   { path: "/intelligence", label: "ML & AI Intel", icon: "⚡" },
 ];
 

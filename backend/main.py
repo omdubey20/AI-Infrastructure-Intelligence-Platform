@@ -23,7 +23,7 @@ from services.ai_insights_engine import generate_all_insights
 from services.duplicate_detector import detect_duplicates
 from services.inactive_detector import detect_inactive_projects
 
-from routers import stats, projects, servers, cleanup, discovery, whm, ml, ai, audit, dashboard_spec
+from routers import stats, projects, servers, cleanup, discovery, whm, ml, ai, audit, dashboard_spec, monitoring, security
 from routers.auth import router as auth_router
 
 logging.basicConfig(level=logging.INFO)
@@ -82,9 +82,24 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 scheduler = BackgroundScheduler()
 
 
+from services.uptime_monitor import check_all_websites
+from services.security_scanner import run_full_security_audit
+
+
+def uptime_check_job():
+    """Periodic 24/7 website uptime & latency check (every 5 minutes)."""
+    db = next(get_db())
+    try:
+        check_all_websites(db)
+    except Exception as e:
+        logger.warning(f"APScheduler: Uptime check job notice: {e}")
+    finally:
+        db.close()
+
+
 def hourly_sync_job():
-    """Hourly background synchronization — rescans server metrics, detects duplicates/inactives, refreshes AI insights."""
-    logger.info("APScheduler: Running hourly synchronization job...")
+    """Hourly background synchronization — rescans servers, audits security, detects duplicates, refreshes AI insights."""
+    logger.info("APScheduler: Running hourly synchronization & security audit...")
     db = next(get_db())
     try:
         all_servers = db.query(Server).all()
@@ -98,6 +113,7 @@ def hourly_sync_job():
         detect_duplicates(discoveries)
         detect_inactive_projects(discoveries)
         generate_all_insights(db)
+        run_full_security_audit(db)
         db.commit()
     except Exception as e:
         logger.error(f"APScheduler sync job error: {e}")
@@ -114,12 +130,21 @@ async def lifespan(app: FastAPI):
         "interval",
         hours=1,
         id="hourly_sync",
-        misfire_grace_time=300,       # Allow 5-min late execution
-        max_instances=1,              # Prevent overlapping runs
-        coalesce=True,                # Merge missed runs into one
+        misfire_grace_time=300,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        uptime_check_job,
+        "interval",
+        minutes=5,
+        id="uptime_check_5min",
+        misfire_grace_time=60,
+        max_instances=1,
+        coalesce=True,
     )
     scheduler.start()
-    logger.info("APScheduler started — hourly background sync active.")
+    logger.info("APScheduler started — 24/7 Uptime (5min) and Server Sync (1hr) active.")
     yield
     scheduler.shutdown()
     logger.info("APScheduler stopped.")
@@ -161,6 +186,8 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(servers.router)
 app.include_router(projects.router)
+app.include_router(monitoring.router)
+app.include_router(security.router)
 app.include_router(cleanup.router)
 app.include_router(stats.router)
 app.include_router(discovery.router)

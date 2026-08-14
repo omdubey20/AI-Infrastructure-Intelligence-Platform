@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import api from "../api/axios";
 
-const FILTERS = ["all", "live", "suspended"];
+const FILTERS = ["all", "live"];
 
 
 export default function Projects() {
@@ -50,33 +50,39 @@ export default function Projects() {
     const interval = setInterval(fetchProjects, 15000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, search, serverId]);
+  }, [filter, serverId, search]);
 
 
   const handleDelete = async (id, name) => {
-    if (!window.confirm(`Delete project '${name}'?`)) return;
+    if (!window.confirm(`Are you sure you want to remove project "${name}" from discovery?`)) return;
     try {
       await api.delete(`/projects/${id}`);
-      setActionMsg({ ok: true, msg: `Project '${name}' deleted.` });
+      setActionMsg({ ok: true, msg: `Project "${name}" removed.` });
       fetchProjects();
-    } catch (e) {
-      setActionMsg({ ok: false, msg: `Delete failed: ${e.response?.data?.detail || e.message}` });
+    } catch (err) {
+      setActionMsg({ ok: false, msg: `Failed to remove: ${err?.response?.data?.detail || err.message}` });
     }
   };
 
-  const riskColor = (score) => (score >= 70 ? "#f87171" : score >= 40 ? "#fbbf24" : "#4ade80");
+  const riskColor = (score) => {
+    if (!score && score !== 0) return "#94a3b8";
+    if (score >= 60) return "var(--red)";
+    if (score >= 30) return "var(--yellow)";
+    return "var(--green)";
+  };
 
   return (
-    <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh" }}>
+    <div style={{ padding: "32px", maxWidth: "1400px", margin: "0 auto" }}>
       {/* Header */}
-      <div style={{ marginBottom: "28px" }}>
-        <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 800, letterSpacing: "0.14em", marginBottom: "6px" }}>
-          INFRASTRUCTURE PROJECTS EXPLORER
-        </p>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Discovered Projects</h1>
-        <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-          Showing {projects.length} of {totalCount} project(s) discovered across server fleet
-        </p>
+      <div style={{ marginBottom: "28px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
+        <div>
+          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9", marginBottom: "6px" }}>
+            Live Projects Directory
+          </h1>
+          <p style={{ color: "#94a3b8", fontSize: "14px" }}>
+            All active web applications, PHP frameworks, and domain discoveries across connected servers ({totalCount} live projects)
+          </p>
+        </div>
       </div>
 
       {actionMsg && (
@@ -100,7 +106,7 @@ export default function Projects() {
                 color: filter === f ? "#080e1a" : "#94a3b8"
               }}
             >
-              {f === "suspended" ? "Suspended (Not Live)" : f}
+              {f === "live" ? "Active Live" : "All Live Projects"}
             </button>
           ))}
 
@@ -149,7 +155,7 @@ export default function Projects() {
                   <th>Framework</th>
                   <th>Domain</th>
                   <th>Path</th>
-                  <th>Account Status</th>
+                  <th>Status</th>
                   <th>DNS Status</th>
                   <th>Risk</th>
                   <th>Actions</th>
@@ -157,8 +163,6 @@ export default function Projects() {
               </thead>
               <tbody>
                 {projects.map((p) => {
-                  const isSuspended = p.is_inactive || p.env_type === "archived" || p.status === "suspended";
-                  const isLive = p.is_live && !isSuspended;
                   return (
                     <tr key={p.id}>
                       <td style={{ fontWeight: 800, color: "#f1f5f9" }}>{p.project_name || p.name}</td>
@@ -171,8 +175,8 @@ export default function Projects() {
                       <td style={{ fontFamily: "monospace", color: "#38bdf8" }}>{p.domain || "-"}</td>
                       <td style={{ fontFamily: "monospace", color: "#64748b", fontSize: "12px" }}>{p.project_path || "-"}</td>
                       <td>
-                        <span className={isLive ? "badge badge-green" : "badge badge-red"}>
-                          {isLive ? "● Active (Live)" : "● Suspended (Not Live)"}
+                        <span className="badge badge-green">
+                          ● Active (Live)
                         </span>
                       </td>
                       <td>

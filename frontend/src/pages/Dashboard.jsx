@@ -138,16 +138,16 @@ export default function Dashboard() {
           <StatCard title="Total Servers" value={stats.total_servers} icon="🖥️" color="blue" subtitle="Live SSH / WHM" />
         </div>
         <div onClick={() => navigate("/projects")} style={{ cursor: "pointer" }}>
-          <StatCard title="Discovered Projects" value={stats.total_projects} icon="📁" color="teal" subtitle="Across all servers" />
+          <StatCard title="Live Projects" value={stats.live_projects || stats.total_projects} icon="📁" color="teal" subtitle="Active deployments" />
         </div>
-        <div onClick={() => navigate("/projects?filter=live")} style={{ cursor: "pointer" }}>
-          <StatCard title="Live Deployments" value={stats.live_projects} icon="✅" color="green" subtitle="DNS + VHost verified" />
+        <div onClick={() => navigate("/monitoring")} style={{ cursor: "pointer" }}>
+          <StatCard title="Website Uptime" value="24/7" icon="📈" color="green" subtitle="Live Latency & SSL" />
+        </div>
+        <div onClick={() => navigate("/security")} style={{ cursor: "pointer" }}>
+          <StatCard title="Security & Alerts" value="Active" icon="🛡️" color="red" subtitle="Teams & Email Alerts" />
         </div>
         <div onClick={() => navigate("/duplicates")} style={{ cursor: "pointer" }}>
-          <StatCard title="Duplicate Copies" value={stats.duplicate_projects} icon="👯" color="amber" subtitle="Wasting storage" />
-        </div>
-        <div onClick={() => navigate("/inactive")} style={{ cursor: "pointer" }}>
-          <StatCard title="3-Yr Inactive" value={stats.inactive_projects} icon="⏳" color="red" subtitle="Archive candidates" />
+          <StatCard title="Duplicate Copies" value={stats.duplicate_projects} icon="👯" color="amber" subtitle="Cross-server clones" />
         </div>
       </div>
 

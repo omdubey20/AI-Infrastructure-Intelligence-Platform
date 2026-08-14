@@ -432,6 +432,9 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                 seen_users = set()
                 unique_accts = []
                 for acc in accts:
+                    # Exclude suspended accounts completely
+                    if bool(acc.get("suspended")):
+                        continue
                     u = acc.get("user", "").strip()
                     if u and u not in seen_users:
                         seen_users.add(u)
@@ -441,12 +444,13 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                 created_count = 0
 
                 for idx, acc in enumerate(unique_accts):
+                    if bool(acc.get("suspended")):
+                        continue
+
                     username = acc.get("user", "").strip()
                     primary_domain = acc.get("domain", "").strip()
                     domain_name = primary_domain or username
                     proj_path = f"/home/{username}/public_html" if username else "/var/www/html"
-
-                    is_suspended = bool(acc.get("suspended"))
                     disk_used_mb = _safe_int(acc.get("diskused", 100))
 
                     proj_data = {
@@ -457,15 +461,15 @@ def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
                         "framework": "php",
                         "language": "php",
                         "size_mb": disk_used_mb,
-                        "dns_points_here": not is_suspended,
-                        "web_config_active": not is_suspended,
-                        "has_ssl": not is_suspended,
-                        "ssl_expiry_days": None if is_suspended else 60,
-                        "days_since_modified": 1120 if is_suspended else 10,
-                        "is_live": not is_suspended,
-                        "is_inactive": is_suspended,
-                        "env_type": "archived" if is_suspended else "live",
-                        "risk_score": 45 if is_suspended else 15,
+                        "dns_points_here": True,
+                        "web_config_active": True,
+                        "has_ssl": True,
+                        "ssl_expiry_days": 60,
+                        "days_since_modified": 10,
+                        "is_live": True,
+                        "is_inactive": False,
+                        "env_type": "live",
+                        "risk_score": 15,
                         "data_source": "whm",
                     }
                     upsert_discovery(db, server.id, proj_data)

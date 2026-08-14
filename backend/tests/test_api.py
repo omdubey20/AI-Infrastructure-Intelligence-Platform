@@ -576,3 +576,80 @@ class TestMLEndpoints:
         resp = client.get("/ml/predictions", headers=auth_headers())
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
+
+
+# ============================================================
+# PHASE 13: 24/7 WEBSITE MONITORING
+# ============================================================
+
+class TestWebsiteMonitoring:
+    def test_monitoring_overview_requires_auth(self):
+        resp = client.get("/monitoring/overview")
+        assert resp.status_code in (401, 403)
+
+    def test_monitoring_overview_with_auth(self):
+        resp = client.get("/monitoring/overview", headers=auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total_websites" in data
+        assert "uptime_percentage" in data
+        assert "average_latency_ms" in data
+
+    def test_monitoring_websites_list(self):
+        resp = client.get("/monitoring/websites", headers=auth_headers())
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    def test_monitoring_check_now(self):
+        resp = client.post("/monitoring/check-now", headers=auth_headers())
+        assert resp.status_code == 200
+        assert "Live website monitoring check completed" in resp.json()["message"]
+
+
+# ============================================================
+# PHASE 14: SECURITY AUDIT & MULTI-CHANNEL ALERTS
+# ============================================================
+
+class TestSecurityAndAlerts:
+    def test_security_alerts_requires_auth(self):
+        resp = client.get("/security/alerts")
+        assert resp.status_code in (401, 403)
+
+    def test_security_alerts_with_auth(self):
+        resp = client.get("/security/alerts", headers=auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "alerts" in data
+        assert "total_active" in data
+
+    def test_security_scan_now(self):
+        resp = client.post("/security/scan-now", headers=auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed"
+
+    def test_alert_config_save_and_read(self):
+        payload = {
+            "teams_webhook_url": "https://outlook.office.com/webhook/test-sample",
+            "teams_enabled": True,
+            "email_recipients": "devops@company.com, admin@company.com",
+            "email_enabled": True,
+            "alert_on_disk_full": True,
+            "alert_on_website_down": True,
+            "alert_on_malware": True
+        }
+        res = client.post("/security/config", json=payload, headers=auth_headers())
+        assert res.status_code == 200
+
+        cfg_res = client.get("/security/config", headers=auth_headers())
+        assert cfg_res.status_code == 200
+        data = cfg_res.json()
+        assert data["teams_enabled"] is True
+        assert data["email_enabled"] is True
+
+    def test_send_test_alert(self):
+        res = client.post("/security/test-alert?channel=both", headers=auth_headers())
+        assert res.status_code == 200
+        data = res.json()
+        assert "results" in data
+

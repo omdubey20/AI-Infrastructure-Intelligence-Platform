@@ -212,24 +212,77 @@ class ProjectDiscovery(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    __table_args__ = (
-        Index("ix_audit_user", "user_id"),
-        Index("ix_audit_action", "action"),
-        Index("ix_audit_created", "created_at"),
-    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    action = Column(String, nullable=False)          # scan, cleanup, login, create_server, delete_project, etc.
-    entity_type = Column(String, nullable=True)      # server, project, discovery
+    action = Column(String, nullable=False)        # create_server, scan_server, update_credentials, etc.
+    entity_type = Column(String, nullable=True)   # server, project, user
     entity_id = Column(Integer, nullable=True)
     entity_name = Column(String, nullable=True)
-    details = Column(Text, nullable=True)            # JSON details
+    details = Column(Text, nullable=True)          # JSON context
     ip_address = Column(String, nullable=True)
-    status = Column(String, default="success")       # success, error
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="audit_logs")
+
+
+class WebsiteUptimeCheck(Base):
+    """24/7 Website & Domain Uptime monitoring history (DataDog / 360Monitoring style)"""
+    __tablename__ = "website_uptime_checks"
+    __table_args__ = (
+        Index("ix_wuc_domain", "domain"),
+        Index("ix_wuc_checked_at", "checked_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    discovery_id = Column(Integer, ForeignKey("project_discoveries.id", ondelete="CASCADE"), nullable=True)
+    domain = Column(String, nullable=False, index=True)
+    url = Column(String, nullable=False)
+    http_status = Column(Integer, nullable=True)
+    response_time_ms = Column(Integer, default=0)
+    is_up = Column(Boolean, default=True)
+    ssl_valid = Column(Boolean, default=True)
+    ssl_days_remaining = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    checked_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SecurityAlert(Base):
+    """Malware, disk threshold, and security vulnerability alert records"""
+    __tablename__ = "security_alerts"
+    __table_args__ = (
+        Index("ix_sa_severity", "severity"),
+        Index("ix_sa_is_resolved", "is_resolved"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    target_type = Column(String, default="server")  # server, project
+    target_id = Column(Integer, nullable=True)
+    target_name = Column(String, nullable=False)
+    severity = Column(String, default="WARNING")    # CRITICAL, WARNING, INFO
+    category = Column(String, nullable=False)       # DISK_FULL, MALWARE, EXPOSED_ENV, SSL_EXPIRING, PORT_RISK, WEBSITE_DOWN
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    recommendation = Column(Text, nullable=True)
+    is_resolved = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+
+
+class AlertConfig(Base):
+    """Alert channels configuration (Microsoft Teams Webhook & Email notifications)"""
+    __tablename__ = "alert_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    teams_webhook_url = Column(String, nullable=True)
+    teams_enabled = Column(Boolean, default=False)
+    email_recipients = Column(String, nullable=True)  # comma-separated emails
+    email_enabled = Column(Boolean, default=False)
+    alert_on_disk_full = Column(Boolean, default=True)
+    alert_on_website_down = Column(Boolean, default=True)
+    alert_on_malware = Column(Boolean, default=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 
 class ScanJob(Base):
