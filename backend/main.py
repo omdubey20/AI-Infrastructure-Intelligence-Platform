@@ -128,7 +128,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         hourly_sync_job,
         "interval",
-        hours=1,
+        minutes=20,
         id="hourly_sync",
         misfire_grace_time=300,
         max_instances=1,
