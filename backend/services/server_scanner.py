@@ -277,18 +277,7 @@ def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:
         client = connect_ssh(server)
         ssh_available = client is not None
 
-        if server.whm_token or os.getenv("WHM_TOKEN") or server.whm_host:
-            # If WHM is configured, prioritize it for accurate cPanel project discovery!
-            result = _whm_or_simulated_scan(db, server, job)
-            if ssh_available:
-                sys_info = collect_system_info(client)
-                if not (server.agent_installed or server.data_source == "agent"):
-                    for key, val in sys_info.items():
-                        if hasattr(server, key) and key not in ["id", "ip_address", "name", "created_at"]:
-                            setattr(server, key, val)
-                client.close()
-                result["ssh_connected"] = True
-        elif ssh_available:
+        if ssh_available:
             result = _ssh_scan(db, server, client, job)
         else:
             result = _whm_or_simulated_scan(db, server, job)
@@ -338,9 +327,7 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     db.commit()
 
     raw_projects = discover_projects_via_ssh(client)
-    
-    if raw_projects:
-        _clear_server_discoveries(db, server.id)
+    _clear_server_discoveries(db, server.id)
 
     created_count = 0
     for proj in raw_projects:
@@ -390,17 +377,15 @@ def _clear_server_discoveries(db, server_id: int):
 
 
 def is_account_suspended(acc: dict) -> bool:
-    """Accurately detect if a cPanel account is suspended across all WHM return formats (int, str, bool, suspendreason)."""
+    """
+    Accurately detect if a cPanel account is CURRENTLY suspended in WHM listaccts.
+    cPanel returns 'suspended': '1' or 1 when suspended, and 'suspended': '0' or 0 when active.
+    """
     val = acc.get("suspended")
-    if val is True or val == 1 or str(val).strip() == "1" or str(val).strip().lower() == "true":
-        return True
-    reason = acc.get("suspendreason")
-    if reason and str(reason).strip().lower() not in ("none", "null", "false", "", "0", "-"):
-        return True
-    suspend_time = acc.get("suspendtime")
-    if suspend_time and str(suspend_time).strip() not in ("0", "", "none", "null"):
-        return True
-    return False
+    if val is None:
+        return False
+    s_val = str(val).strip().lower()
+    return s_val in ("1", "true", "yes")
 
 
 def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:

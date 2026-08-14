@@ -11,9 +11,6 @@ const HEALTH_COLORS = { Healthy: "#22c55e", Warning: "#f59e0b", Critical: "#f871
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [scanning, setScanning] = useState(false);
-  const [mlTraining, setMlTraining] = useState(false);
-  const [bannerMsg, setBannerMsg] = useState(null);
   const [insights, setInsights] = useState([]);
 
   const [stats, setStats] = useState({
@@ -34,11 +31,6 @@ export default function Dashboard() {
       if (sRes?.data) setStats(sRes.data);
     } catch (e) {
       console.error("Failed to fetch dashboard stats:", e);
-      setStats({
-          healthy_servers: 0, warning_servers: 0, critical_servers: 0,
-          total_servers: 0, live_projects: 0, inactive_projects: 0, duplicate_projects: 0,
-          top_risk_servers: []
-      });
     }
 
     try {
@@ -54,34 +46,6 @@ export default function Dashboard() {
     const interval = setInterval(fetchStats, 30000);
     return () => clearInterval(interval);
   }, []);
-
-  const handleScan = async () => {
-    setScanning(true);
-    setBannerMsg(null);
-    try {
-      const res = await api.post("/discovery/scan");
-      setBannerMsg({ ok: true, msg: `SSH/WHM discovery scan completed for ${res.data.servers_scanned || 0} server(s).` });
-      fetchStats();
-    } catch (e) {
-      setBannerMsg({ ok: false, msg: "Discovery scan failed." });
-    } finally {
-      setScanning(false);
-    }
-  };
-
-  const handleRetrainML = async () => {
-    setMlTraining(true);
-    setBannerMsg(null);
-    try {
-      const res = await api.post("/ml/train");
-      setBannerMsg({ ok: true, msg: `MLflow Pipeline Retrained! Run ID: ${res.data.run_id?.slice(0, 8)} (R²: ${res.data.metrics?.r2_score})` });
-      fetchStats();
-    } catch (e) {
-      setBannerMsg({ ok: false, msg: "ML training failed." });
-    } finally {
-      setMlTraining(false);
-    }
-  };
 
   const barData = useMemo(
     () =>
@@ -118,24 +82,11 @@ export default function Dashboard() {
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button onClick={handleScan} disabled={scanning} className="btn-primary">
-            {scanning ? <><span className="spinner" /> Scanning...</> : "🔍 Scan Infrastructure"}
-          </button>
-          <button onClick={handleRetrainML} disabled={mlTraining} style={{
-            padding: "10px 18px", background: "linear-gradient(135deg,#8b5cf6,#6366f1)",
-            color: "white", border: "none", borderRadius: "10px", fontWeight: 800, cursor: "pointer"
-          }}>
-            {mlTraining ? <><span className="spinner" /> Retraining...</> : "⚡ Retrain MLflow"}
-          </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(56,189,248,0.08)", border: "1px solid rgba(56,189,248,0.2)", borderRadius: "20px", padding: "8px 16px" }}>
+          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#4ade80", boxShadow: "0 0 8px #4ade80" }} />
+          <span style={{ fontSize: "12px", fontWeight: 700, color: "#38bdf8" }}>24/7 Auto-Sync & Real-Time Telemetry Active</span>
         </div>
       </div>
-
-      {bannerMsg && (
-        <div style={{ padding: "12px 16px", borderRadius: "8px", background: bannerMsg.ok ? "rgba(34,197,94,0.12)" : "rgba(248,113,113,0.12)", border: bannerMsg.ok ? "1px solid rgba(34,197,94,0.3)" : "1px solid rgba(248,113,113,0.3)", color: bannerMsg.ok ? "#4ade80" : "#f87171", fontSize: "13px", fontWeight: 600, marginBottom: "24px" }}>
-          {bannerMsg.msg}
-        </div>
-      )}
 
       {/* KPI Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "16px", marginBottom: "28px" }}>

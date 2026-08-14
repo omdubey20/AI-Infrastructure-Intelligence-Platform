@@ -77,37 +77,23 @@ def audit_server_security(db, server) -> list:
         ).update({"is_resolved": True, "resolved_at": datetime.utcnow()})
         db.commit()
 
-    # 2. CPU / Memory Overload (Sustained Load)
+    # 2. CPU / Memory Overload
     cpu_pct = server.cpu_usage or 0
     mem_pct = server.memory_usage or 0
-    now = datetime.utcnow()
-    
     if cpu_pct >= 90 or mem_pct >= 92:
-        if not server.cpu_spike_started_at:
-            server.cpu_spike_started_at = now
-            db.commit()
-            
-        spike_duration = (now - server.cpu_spike_started_at).total_seconds()
-        
-        # Only trigger alert if sustained for > 5 minutes (300 seconds)
-        if spike_duration >= 300:
-            notify_alert(
-                db,
-                category="RESOURCE_OVERLOAD",
-                target_name=server.name,
-                title=f"Sustained Resource Saturation: {server.name} (CPU: {cpu_pct}%, RAM: {mem_pct}%)",
-                description=f"Server '{server.name}' has experienced sustained resource saturation for over 5 minutes. CPU: {cpu_pct}%, Memory: {mem_pct}%. Risk of service starvation.",
-                severity="WARNING",
-                target_type="server",
-                target_id=server.id,
-                recommendation="Inspect high-CPU processes (top / htop) and review MySQL slow query logs.",
-            )
-            alerts_generated.append("Sustained Resource Overload Alert")
+        notify_alert(
+            db,
+            category="RESOURCE_OVERLOAD",
+            target_name=server.name,
+            title=f"Resource Saturation: {server.name} (CPU: {cpu_pct}%, RAM: {mem_pct}%)",
+            description=f"Server '{server.name}' is experiencing severe resource saturation. CPU: {cpu_pct}%, Memory: {mem_pct}%. Risk of service starvation.",
+            severity="WARNING",
+            target_type="server",
+            target_id=server.id,
+            recommendation="Inspect high-CPU processes (top / htop) and review MySQL slow query logs.",
+        )
+        alerts_generated.append("Resource Overload Alert")
     else:
-        if server.cpu_spike_started_at:
-            server.cpu_spike_started_at = None
-            db.commit()
-            
         # Auto-resolve resource overload when load drops
         db.query(SecurityAlert).filter(
             SecurityAlert.target_name == server.name,
@@ -198,19 +184,13 @@ def run_full_security_audit(db) -> dict:
     server_alerts = 0
     project_alerts = 0
 
-    from services.imunify_scanner import scan_server_for_malware
+    for s in servers:
+        s_res = audit_server_security(db, s)
+        server_alerts += len(s_res)
 
-    for server in servers:
-        s_alerts = audit_server_security(db, server)
-        server_alerts += len(s_alerts)
-        
-        # Add Imunify360 Malware Scan
-        m_alerts = scan_server_for_malware(db, server)
-        server_alerts += len(m_alerts)
-
-    for proj in projects:
-        p_alerts = audit_project_security(db, proj)
-        project_alerts += len(p_alerts)
+    for p in projects:
+        p_res = audit_project_security(db, p)
+        project_alerts += len(p_res)
 
     active_alerts = db.query(SecurityAlert).filter(SecurityAlert.is_resolved == False).order_by(SecurityAlert.created_at.desc()).all()
     critical_count = sum(1 for a in active_alerts if a.severity == "CRITICAL")

@@ -23,8 +23,9 @@ export default function Projects() {
     }
   };
 
-  const fetchProjects = async () => {
+  const fetchProjects = async (isInitial = false) => {
     try {
+      if (isInitial) setLoading(true);
       const params = { filter, search, limit: 1000 };
       if (serverId !== "all") {
         params.server_id = serverId;
@@ -36,18 +37,19 @@ export default function Projects() {
     } catch (e) {
       console.error("fetchProjects error:", e);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchServers();
+    fetchProjects(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    fetchProjects();
-    const interval = setInterval(fetchProjects, 15000);
+    fetchProjects(false);
+    const interval = setInterval(() => fetchProjects(false), 20000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, serverId, search]);
