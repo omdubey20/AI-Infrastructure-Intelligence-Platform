@@ -108,6 +108,29 @@ export default function Servers() {
     }
   };
 
+  const [agentModalServer, setAgentModalServer] = useState(null);
+  const [agentTokenInfo, setAgentTokenInfo] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleOpenAgentModal = async (server) => {
+    setAgentModalServer(server);
+    setCopied(false);
+    try {
+      const res = await api.get(`/agent/token/${server.id}`);
+      setAgentTokenInfo(res.data);
+    } catch (e) {
+      console.error("Failed to load agent token:", e);
+    }
+  };
+
+  const handleCopyAgentCommand = () => {
+    if (agentTokenInfo?.install_command) {
+      navigator.clipboard.writeText(agentTokenInfo.install_command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
+
   const filteredServers = servers.filter(s => {
     if (envFilter !== "all" && s.environment !== envFilter) return false;
     if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.ip_address.includes(search)) return false;
@@ -126,7 +149,31 @@ export default function Servers() {
             {servers.length} server(s) registered across environments
           </p>
         </div>
-        <button onClick={handleOpenAdd} className="btn-primary">+ Add Server</button>
+        <div style={{ display: "flex", gap: "10px" }}>
+          {servers.length > 0 && (
+            <button
+              onClick={() => handleOpenAgentModal(servers[0])}
+              style={{
+                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                color: "white",
+                border: "none",
+                borderRadius: "10px",
+                padding: "10px 18px",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                boxShadow: "0 0 16px rgba(99,102,241,0.3)",
+              }}
+            >
+              <span>⚡</span>
+              <span>Install 24/7 Agent</span>
+            </button>
+          )}
+          <button onClick={handleOpenAdd} className="btn-primary">+ Add Server</button>
+        </div>
       </div>
 
       {actionMsg && (
@@ -201,7 +248,7 @@ export default function Servers() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "6px" }}>
-                        <button onClick={(e) => { e.stopPropagation(); navigate(`/servers/${s.id}`); }} className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px", background: "rgba(99,102,241,0.15)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.3)" }}>
+                        <button onClick={(e) => { e.stopPropagation(); handleOpenAgentModal(s); }} className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px", background: "rgba(99,102,241,0.15)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.3)", fontWeight: 700 }}>
                           ⚡ 24/7 Agent
                         </button>
                         <button onClick={(e) => handleScanSingle(s.id, s.name, e)} className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px" }}>
@@ -257,6 +304,84 @@ export default function Servers() {
                 <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : editId ? "Update & Scan" : "Add Server & Scan"}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 24/7 Agent Install Modal */}
+      {agentModalServer && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
+          <div style={{ background: "#111c2e", border: "1px solid #2b4565", borderRadius: "16px", padding: "32px", maxWidth: "680px", width: "100%" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "24px" }}>⚡</span>
+                <h2 style={{ fontSize: "18px", fontWeight: 800, margin: 0, color: "#f1f5f9" }}>
+                  Install 24/7 Monitoring Agent (DataDog Style)
+                </h2>
+              </div>
+              <button onClick={() => setAgentModalServer(null)} style={{ background: "none", border: "none", color: "#94a3b8", fontSize: "20px", cursor: "pointer" }}>✕</button>
+            </div>
+
+            <p style={{ color: "#94a3b8", fontSize: "13px", lineHeight: "1.5", marginBottom: "16px" }}>
+              Run this 1-line command on <strong>{agentModalServer.name}</strong> ({agentModalServer.ip_address}) as <code>root</code> in Terminal / WHM Terminal. It installs a lightweight background daemon (&lt;5MB RAM) that streams live kernel metrics and process hogs directly to your platform.
+            </p>
+
+            {/* Server Selector if multiple servers */}
+            {servers.length > 1 && (
+              <div style={{ marginBottom: "14px" }}>
+                <label style={{ fontSize: "12px", color: "#64748b", fontWeight: 700, display: "block", marginBottom: "6px" }}>TARGET SERVER:</label>
+                <select
+                  value={agentModalServer.id}
+                  onChange={(e) => {
+                    const s = servers.find(x => x.id === parseInt(e.target.value));
+                    if (s) handleOpenAgentModal(s);
+                  }}
+                  style={{ width: "100%", background: "#0d1524", border: "1px solid #1d3047", borderRadius: "8px", padding: "8px 12px", color: "white", fontSize: "13px" }}
+                >
+                  {servers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.ip_address}) {s.agent_installed ? "— ● 24/7 Agent Active" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div style={{ background: "#060b13", border: "1px solid #1d3047", borderRadius: "10px", padding: "16px", marginBottom: "20px", position: "relative" }}>
+              <div style={{ fontSize: "11px", color: "#64748b", fontWeight: 700, letterSpacing: "0.08em", marginBottom: "8px" }}>ONE-LINE INSTALL COMMAND</div>
+              <pre style={{ margin: 0, color: "#38bdf8", fontFamily: "monospace", fontSize: "13px", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                {agentTokenInfo?.install_command || "Generating command..."}
+              </pre>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
+              <button
+                onClick={handleCopyAgentCommand}
+                style={{
+                  background: copied ? "linear-gradient(135deg, #059669, #10b981)" : "linear-gradient(135deg, #0284c7, #2563eb)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "10px 20px",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px"
+                }}
+              >
+                <span>{copied ? "✓" : "📋"}</span>
+                <span>{copied ? "Copied to Clipboard!" : "Copy 1-Line Command"}</span>
+              </button>
+
+              <button
+                onClick={() => setAgentModalServer(null)}
+                style={{ background: "#1e293b", border: "none", color: "#94a3b8", borderRadius: "8px", padding: "10px 18px", fontSize: "13px", cursor: "pointer" }}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
