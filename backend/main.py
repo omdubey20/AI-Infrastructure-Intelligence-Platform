@@ -65,8 +65,36 @@ def ensure_default_admin():
     finally:
         db.close()
 
+def run_schema_migrations():
+    """Safely auto-migrate PostgreSQL / SQLite schema to ensure all newly added columns exist."""
+    from sqlalchemy import text
+    migrations = [
+        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_token VARCHAR",
+        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_installed BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_version VARCHAR",
+        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_last_seen TIMESTAMP",
+        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS top_processes TEXT",
+        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS whm_accounts_count INTEGER DEFAULT 0",
+        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS credentials_encrypted BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE project_discoveries ADD COLUMN IF NOT EXISTS http_status INTEGER",
+        "ALTER TABLE project_discoveries ADD COLUMN IF NOT EXISTS has_ssl BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE project_discoveries ADD COLUMN IF NOT EXISTS ssl_expiry_days INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_servers_agent_token ON servers (agent_token)",
+    ]
+    try:
+        with engine.begin() as conn:
+            for stmt in migrations:
+                try:
+                    conn.execute(text(stmt))
+                except Exception as migration_stmt_err:
+                    logger.debug(f"Schema migration statement notice ({stmt}): {migration_stmt_err}")
+        logger.info("Schema migrations verified successfully.")
+    except Exception as migration_err:
+        logger.warning(f"Schema migration general notice: {migration_err}")
+
 try:
     Base.metadata.create_all(bind=engine, checkfirst=True)
+    run_schema_migrations()
     ensure_default_admin()
 except Exception as db_init_err:
     logger.warning(f"Database initialization notice on startup: {db_init_err}")
