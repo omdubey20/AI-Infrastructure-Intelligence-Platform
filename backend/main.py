@@ -23,7 +23,7 @@ from services.ai_insights_engine import generate_all_insights
 from services.duplicate_detector import detect_duplicates
 from services.inactive_detector import detect_inactive_projects
 
-from routers import stats, projects, servers, cleanup, discovery, whm, ml, ai, audit, dashboard_spec, monitoring, security
+from routers import stats, projects, servers, cleanup, discovery, whm, ml, ai, audit, dashboard_spec, monitoring, security, agent
 from routers.auth import router as auth_router
 
 logging.basicConfig(level=logging.INFO)
@@ -128,7 +128,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         hourly_sync_job,
         "interval",
-        minutes=20,
+        hours=1,
         id="hourly_sync",
         misfire_grace_time=300,
         max_instances=1,
@@ -188,6 +188,7 @@ app.include_router(servers.router)
 app.include_router(projects.router)
 app.include_router(monitoring.router)
 app.include_router(security.router)
+app.include_router(agent.router)
 app.include_router(cleanup.router)
 app.include_router(stats.router)
 app.include_router(discovery.router)

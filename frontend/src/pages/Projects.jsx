@@ -155,6 +155,7 @@ export default function Projects() {
                   <th>Framework</th>
                   <th>Domain</th>
                   <th>Path</th>
+                  <th>Status</th>
                   <th>DNS Status</th>
                   <th>Risk</th>
                   <th>Actions</th>
@@ -173,6 +174,11 @@ export default function Projects() {
                       </td>
                       <td style={{ fontFamily: "monospace", color: "#38bdf8" }}>{p.domain || "-"}</td>
                       <td style={{ fontFamily: "monospace", color: "#64748b", fontSize: "12px" }}>{p.project_path || "-"}</td>
+                      <td>
+                        <span className="badge badge-green">
+                          ● Active (Live)
+                        </span>
+                      </td>
                       <td>
                         <span className={p.dns_points_here ? "badge badge-green" : "badge badge-red"}>
                           {p.dns_points_here ? "● Live DNS" : "● Dead DNS"}

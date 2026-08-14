@@ -19,6 +19,7 @@ from sqlalchemy.orm import sessionmaker
 
 from main import app
 from database import Base, get_db
+import models
 
 # ============================================================
 # TEST DATABASE SETUP (in-memory SQLite for isolation)
@@ -652,4 +653,91 @@ class TestSecurityAndAlerts:
         assert res.status_code == 200
         data = res.json()
         assert "results" in data
+
+
+# ============================================================
+# PHASE 15: 24/7 DEDICATED MONITORING AGENT
+# ============================================================
+
+class TestAgentArchitecture:
+    def test_get_install_bash_script(self):
+        resp = client.get("/agent/install.sh")
+        assert resp.status_code == 200
+        assert "#!/usr/bin/env bash" in resp.text
+        assert "infra-intel" in resp.text
+
+    def test_get_agent_python_script(self):
+        resp = client.get("/agent/script.py")
+        assert resp.status_code == 200
+        assert "get_cpu_usage" in resp.text
+        assert "get_mem_usage" in resp.text
+
+    def test_get_server_agent_token(self):
+        db = TestSession()
+        server = db.query(models.Server).first()
+        if not server:
+            server = models.Server(name="agent-node", ip_address="192.168.1.100")
+            db.add(server)
+            db.commit()
+            db.refresh(server)
+        srv_id = server.id
+        db.close()
+
+        resp = client.get(f"/agent/token/{srv_id}", headers=auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "agent_token" in data
+        assert "install_command" in data
+        assert f"--token={data['agent_token']}" in data["install_command"]
+
+    def test_post_agent_telemetry_valid(self):
+        db = TestSession()
+        server = db.query(models.Server).first()
+        if not server:
+            server = models.Server(name="agent-node", ip_address="192.168.1.100", agent_token="test_agent_valid_token")
+            db.add(server)
+            db.commit()
+            db.refresh(server)
+        if not server.agent_token:
+            server.agent_token = "test_agent_valid_token"
+            db.commit()
+        token = server.agent_token
+        db.close()
+
+        payload = {
+            "hostname": "linux-node-1",
+            "os_name": "AlmaLinux 9.4",
+            "kernel": "5.14.0-427.el9.x86_64",
+            "cpu_usage": 35,
+            "memory_usage": 48,
+            "disk_usage": 52,
+            "load_avg_1": 0.85,
+            "load_avg_5": 0.90,
+            "load_avg_15": 0.75,
+            "uptime_days": 42,
+            "cpanel_accounts_count": 14,
+            "top_processes": [
+                {"pid": "1234", "user": "mysql", "cpu": 12.5, "mem": 18.2, "command": "/usr/sbin/mysqld"}
+            ],
+            "agent_version": "3.0.0"
+        }
+        resp = client.post("/agent/telemetry", json=payload, headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "success"
+        assert "risk_score" in data
+
+    def test_post_agent_telemetry_invalid_token(self):
+        payload = {
+            "cpu_usage": 10,
+            "memory_usage": 20,
+            "disk_usage": 30,
+            "load_avg_1": 0.1,
+            "load_avg_5": 0.1,
+            "load_avg_15": 0.1,
+            "uptime_days": 10
+        }
+        resp = client.post("/agent/telemetry", json=payload, headers={"Authorization": "Bearer invalid_bad_token"})
+        assert resp.status_code == 403
+
 

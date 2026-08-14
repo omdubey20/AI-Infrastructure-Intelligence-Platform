@@ -90,44 +90,27 @@ def get_server_load(host: str = None, token: str = None, port: int = 2087) -> di
 
 
 def get_server_disk(host: str, token: str, port: int = 2087) -> int:
-    """
-    Get real physical disk usage percentage directly from WHM getdiskusage API v1,
-    or calculate aggregate disk from cPanel accounts.
-    """
-    # 1. Try WHM getdiskusage API v1 (exact mount partition / or /home)
-    disk_api_data = _whm_get(host, token, port, "getdiskusage", {"api.version": "1"})
-    if isinstance(disk_api_data, dict):
-        partitions = disk_api_data.get("data", {}).get("partition", [])
-        for part in partitions:
-            mount = part.get("mount", "")
-            if mount in ("/", "/home", "/var"):
-                pct_str = str(part.get("percentage", "0")).replace("%", "").strip()
-                try:
-                    pct = int(float(pct_str))
-                    if 0 < pct <= 100:
-                        return pct
-                except Exception:
-                    pass
-
-    # 2. Calculate from cPanel accounts listaccts
+    """Get aggregate disk usage percentage from all WHM accounts."""
     accts = get_whm_accounts_for_server(host, token, port)
     if not accts:
-        return 28
-    total_used_mb = 0
+        return 0
+    total_used = 0
+    total_limit = 0
     for acc in accts:
-        if bool(acc.get("suspended")):
-            continue
-        disk_str = str(acc.get("diskused", "0")).replace("M", "").replace("G", "000").replace("K", "").strip()
+        disk_str = str(acc.get("diskused", "0")).replace("M", "").replace("G", "000").replace("K", "")
+        limit_str = str(acc.get("disklimit", "0")).replace("M", "").replace("G", "000").replace("K", "")
         try:
-            total_used_mb += float(disk_str)
+            total_used += float(disk_str)
         except Exception:
             pass
-
-    # If server has accounts, approximate against common cloud disk or 50GB base
-    if total_used_mb > 0:
-        pct = min(92, max(8, int((total_used_mb / (len(accts) * 2048 + 10240)) * 100)))
-        return pct
-    return 30
+        try:
+            if limit_str not in ("0", "unlimited", ""):
+                total_limit += float(limit_str)
+        except Exception:
+            pass
+    if total_limit > 0:
+        return min(95, int((total_used / total_limit) * 100))
+    return 35  # Default estimate when no limit set
 
 
 def get_account_domains_with_creds(host: str, token: str, port: int, username: str) -> list:

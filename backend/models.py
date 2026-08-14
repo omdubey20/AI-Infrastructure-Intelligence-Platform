@@ -112,6 +112,13 @@ class Server(Base):
     scan_status = Column(String, default="never_scanned")  # scanning, success, error, never_scanned
     scan_error = Column(Text, nullable=True)
 
+    # --- 24/7 Agent (DataDog / 360Monitoring Style) ---
+    agent_token = Column(String, unique=True, index=True, nullable=True)
+    agent_installed = Column(Boolean, default=False)
+    agent_version = Column(String, nullable=True)
+    agent_last_seen = Column(DateTime, nullable=True)
+    top_processes = Column(Text, nullable=True)     # JSON: top CPU/RAM processes
+
     # --- AI ---
     ai_risk_confidence = Column(Float, default=0.0)
     ai_recommendation = Column(String, nullable=True)

@@ -20,31 +20,29 @@ export default function Security() {
   const [testResult, setTestResult] = useState(null);
   const [filter, setFilter] = useState("all"); // all, CRITICAL, WARNING
 
-  const fetchSecurityData = async (isInitial = false) => {
+  const fetchSecurityData = async () => {
     try {
-      if (isInitial) setLoading(true);
+      setLoading(true);
       const [alertsRes, cfgRes] = await Promise.all([
         api.get("/security/alerts"),
         api.get("/security/config"),
       ]);
-      setAlerts(Array.isArray(alertsRes.data?.alerts) ? alertsRes.data.alerts : []);
+      setAlerts(alertsRes.data.alerts);
       setCounts({
-        total_active: alertsRes.data?.total_active || 0,
-        critical_count: alertsRes.data?.critical_count || 0,
-        warning_count: alertsRes.data?.warning_count || 0,
+        total_active: alertsRes.data.total_active,
+        critical_count: alertsRes.data.critical_count,
+        warning_count: alertsRes.data.warning_count,
       });
-      if (cfgRes.data) setConfig(cfgRes.data);
+      setConfig(cfgRes.data);
     } catch (err) {
       console.error("Failed to load security data:", err);
     } finally {
-      if (isInitial) setLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSecurityData(true);
-    const timer = setInterval(() => fetchSecurityData(false), 30000);
-    return () => clearInterval(timer);
+    fetchSecurityData();
   }, []);
 
   const handleScanNow = async () => {
