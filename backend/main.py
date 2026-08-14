@@ -138,9 +138,9 @@ def uptime_check_job():
         db.close()
 
 
-def auto_sync_job():
-    """60-Second background synchronization — auto-syncs servers, live projects, security audit, and AI insights."""
-    logger.info("APScheduler: Running 60-second automated sync & security audit...")
+def hourly_sync_job():
+    """Hourly background synchronization — rescans servers, audits security, detects duplicates, refreshes AI insights."""
+    logger.info("APScheduler: Running hourly synchronization & security audit...")
     db = next(get_db())
     try:
         all_servers = db.query(Server).all()
@@ -161,35 +161,31 @@ def auto_sync_job():
         db.rollback()
     finally:
         db.close()
+    logger.info("APScheduler: Hourly sync job completed.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(
-        auto_sync_job,
+        hourly_sync_job,
         "interval",
-        minutes=1,
-        id="auto_sync_60s",
-        misfire_grace_time=30,
+        hours=1,
+        id="hourly_sync",
+        misfire_grace_time=300,
         max_instances=1,
         coalesce=True,
     )
     scheduler.add_job(
         uptime_check_job,
         "interval",
-        minutes=1,
-        id="uptime_check_60s",
-        misfire_grace_time=30,
+        minutes=5,
+        id="uptime_check_5min",
+        misfire_grace_time=60,
         max_instances=1,
         coalesce=True,
     )
     scheduler.start()
-    logger.info("APScheduler started — 60-second automated 24/7 sync active.")
-    # Trigger initial sync in background
-    try:
-        scheduler.add_job(auto_sync_job, id="startup_initial_sync", max_instances=1)
-    except Exception:
-        pass
+    logger.info("APScheduler started — 24/7 Uptime (5min) and Server Sync (1hr) active.")
     yield
     scheduler.shutdown()
     logger.info("APScheduler stopped.")

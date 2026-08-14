@@ -18,9 +18,9 @@ export default function Monitoring() {
   const [lastCheckTime, setLastCheckTime] = useState(null);
   const [pingingId, setPingingId] = useState(null);
 
-  const fetchMonitoringData = async (isInitial = false) => {
+  const fetchMonitoringData = async () => {
     try {
-      if (isInitial) setLoading(true);
+      setLoading(true);
       const [ovRes, webRes] = await Promise.all([
         api.get("/monitoring/overview"),
         api.get("/monitoring/websites"),
@@ -31,13 +31,13 @@ export default function Monitoring() {
     } catch (err) {
       console.error("Failed to load monitoring data:", err);
     } finally {
-      if (isInitial) setLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchMonitoringData(true);
-    const timer = setInterval(() => fetchMonitoringData(false), 30000); // 30s auto-refresh
+    fetchMonitoringData();
+    const timer = setInterval(fetchMonitoringData, 30000); // 30s auto-refresh
     return () => clearInterval(timer);
   }, []);
 

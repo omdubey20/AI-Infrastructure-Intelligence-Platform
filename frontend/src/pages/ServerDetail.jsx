@@ -15,15 +15,14 @@ export default function ServerDetail() {
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const fetchServer = async (isInitial = false) => {
+  const fetchServer = async () => {
     try {
-      if (isInitial) setLoading(true);
       const res = await api.get(`/servers/${id}`);
       setServer(res.data);
     } catch (e) {
       console.error("fetchServer error:", e);
     } finally {
-      if (isInitial) setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -37,12 +36,26 @@ export default function ServerDetail() {
   };
 
   useEffect(() => {
-    fetchServer(true);
+    fetchServer();
     fetchAgentToken();
-    const interval = setInterval(() => fetchServer(false), 20000);
+    const interval = setInterval(fetchServer, 5000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  const handleScan = async () => {
+    setScanning(true);
+    setActionMsg(null);
+    try {
+      await api.post(`/servers/${id}/scan`);
+      setActionMsg({ ok: true, msg: `Discovery scan completed for ${server?.name}` });
+      fetchServer();
+    } catch (e) {
+      setActionMsg({ ok: false, msg: `Scan failed: ${e.response?.data?.detail || e.message}` });
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const handleCopyCommand = () => {
     if (agentInfo?.install_command) {
@@ -107,6 +120,10 @@ export default function ServerDetail() {
           >
             <span>⚡</span>
             <span>Install 24/7 Agent</span>
+          </button>
+
+          <button onClick={handleScan} disabled={scanning} className="btn-primary">
+            {scanning ? <><span className="spinner" /> Scanning...</> : "🔍 Scan Server Now"}
           </button>
         </div>
       </div>
@@ -210,8 +227,8 @@ export default function ServerDetail() {
           Discovered Web Projects & Frameworks ({server.projects ? server.projects.length : 0})
         </h3>
 
-        {server.projects?.length === 0 ? (
-          <p style={{ color: "#64748b", fontSize: "13px" }}>No projects discovered on this server yet. Projects will be auto-synced within 60 seconds.</p>
+        {!server.projects || server.projects.length === 0 ? (
+          <p style={{ color: "#64748b", fontSize: "13px" }}>No projects discovered on this server yet. Click "Scan Server Now" to initiate discovery.</p>
         ) : (
           <div className="table-responsive">
             <table>

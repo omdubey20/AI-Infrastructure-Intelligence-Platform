@@ -20,9 +20,9 @@ export default function Security() {
   const [testResult, setTestResult] = useState(null);
   const [filter, setFilter] = useState("all"); // all, CRITICAL, WARNING
 
-  const fetchSecurityData = async (isInitial = false) => {
+  const fetchSecurityData = async () => {
     try {
-      if (isInitial) setLoading(true);
+      setLoading(true);
       const [alertsRes, cfgRes] = await Promise.all([
         api.get("/security/alerts"),
         api.get("/security/config"),
@@ -37,20 +37,30 @@ export default function Security() {
     } catch (err) {
       console.error("Failed to load security data:", err);
     } finally {
-      if (isInitial) setLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSecurityData(true);
-    const interval = setInterval(() => fetchSecurityData(false), 30000);
-    return () => clearInterval(interval);
+    fetchSecurityData();
   }, []);
+
+  const handleScanNow = async () => {
+    try {
+      setScanning(true);
+      await api.post("/security/scan-now");
+      await fetchSecurityData();
+    } catch (err) {
+      console.error("Security scan error:", err);
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const handleResolveAlert = async (id) => {
     try {
       await api.post(`/security/alerts/${id}/resolve`);
-      await fetchSecurityData(false);
+      await fetchSecurityData();
     } catch (err) {
       console.error("Failed to resolve alert:", err);
     }
@@ -62,9 +72,8 @@ export default function Security() {
       setSavingConfig(true);
       await api.post("/security/config", config);
       setShowConfigModal(false);
-      await fetchSecurityData(false);
     } catch (err) {
-      console.error("Failed to save config:", err);
+      console.error("Failed to save alert settings:", err);
     } finally {
       setSavingConfig(false);
     }
@@ -74,44 +83,41 @@ export default function Security() {
     try {
       setTestResult("Dispatching test alerts...");
       const res = await api.post("/security/test-alert?channel=both");
-      setTestResult(`Teams: ${res.data.results?.teams} | Email: ${res.data.results?.email}`);
-      setTimeout(() => setTestResult(null), 5000);
+      setTestResult(`Teams: ${res.data.results.teams} | Email: ${res.data.results.email}`);
     } catch (err) {
-      setTestResult(err.response?.data?.detail || "Failed to send test alerts");
-      setTimeout(() => setTestResult(null), 5000);
+      setTestResult("Failed to send test alerts");
     }
   };
 
   const filteredAlerts = alerts.filter((a) => {
-    if (filter === "all") return true;
-    return a.severity === filter;
+    if (filter === "CRITICAL") return a.severity === "CRITICAL";
+    if (filter === "WARNING") return a.severity === "WARNING";
+    return true;
   });
 
-  if (loading) {
-    return <div style={{ padding: "32px", color: "#94a3b8" }}>Loading security sentinel...</div>;
-  }
-
   return (
-    <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh" }}>
+    <div style={{ padding: "32px", maxWidth: "1400px", margin: "0 auto", color: "#f1f5f9" }}>
       {/* Header */}
-      <div style={{ marginBottom: "28px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px", flexWrap: "wrap", gap: "16px" }}>
         <div>
-          <p style={{ fontSize: "11px", color: "#f87171", fontWeight: 800, letterSpacing: "0.14em", marginBottom: "6px" }}>
-            SECURITY, SATURATION & MALWARE SENTINEL
-          </p>
-          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9", margin: 0 }}>Security & Alerts</h1>
-          <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-            Automated 24/7 scanning for disk saturation (>85%), exposed keys, dangerous ports, and multi-channel notifications
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+            <span style={{ fontSize: "24px" }}>🛡️</span>
+            <h1 style={{ fontSize: "24px", fontWeight: 800, margin: 0, letterSpacing: "-0.02em" }}>
+              Security, Malware & Alerting Center
+            </h1>
+          </div>
+          <p style={{ color: "#94a3b8", fontSize: "14px", margin: 0 }}>
+            Automated server disk threshold warnings, exposed sensitive key detector, and Microsoft Teams & Email multi-channel alerting
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "10px" }}>
           <button
             onClick={() => setShowConfigModal(true)}
             style={{
               background: "#111c2e",
               color: "#38bdf8",
-              border: "1px solid #1d3047",
+              border: "1px solid rgba(56,189,248,0.3)",
               borderRadius: "8px",
               padding: "10px 16px",
               fontSize: "13px",
@@ -124,6 +130,29 @@ export default function Security() {
           >
             <span>⚙️</span>
             <span>Alert Channels (Teams / Email)</span>
+          </button>
+
+          <button
+            onClick={handleScanNow}
+            disabled={scanning}
+            style={{
+              background: "linear-gradient(135deg, #0d9488, #059669)",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              padding: "10px 18px",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: scanning ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              boxShadow: "0 0 16px rgba(13,148,136,0.3)",
+              opacity: scanning ? 0.7 : 1,
+            }}
+          >
+            <span>{scanning ? "⏳" : "🔍"}</span>
+            <span>{scanning ? "Auditing Security..." : "Run Security Audit"}</span>
           </button>
         </div>
       </div>

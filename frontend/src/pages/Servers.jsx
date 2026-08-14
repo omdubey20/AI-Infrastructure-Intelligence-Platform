@@ -84,6 +84,18 @@ export default function Servers() {
     }
   };
 
+  const handleScanSingle = async (id, name, e) => {
+    e.stopPropagation();
+    setActionMsg({ ok: true, msg: `Scanning ${name}...` });
+    try {
+      const res = await api.post(`/servers/${id}/scan`);
+      setActionMsg({ ok: true, msg: `Scan complete for ${name}: ${res.data.projects_found || 0} project(s) discovered.` });
+      fetchServers();
+    } catch (err) {
+      setActionMsg({ ok: false, msg: `Scan failed for ${name}: ${err.response?.data?.detail || err.message}` });
+    }
+  };
+
   const handleDelete = async (id, name, e) => {
     e.stopPropagation();
     if (!window.confirm(`Delete server '${name}' and all its discovered projects?`)) return;
@@ -111,7 +123,7 @@ export default function Servers() {
           </p>
           <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Servers</h1>
           <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-            {servers.length} server(s) monitored with automated 60s background sync
+            {servers.length} server(s) registered across environments
           </p>
         </div>
         <button onClick={handleOpenAdd} className="btn-primary">+ Add Server</button>
@@ -192,6 +204,9 @@ export default function Servers() {
                         <button onClick={(e) => { e.stopPropagation(); navigate(`/servers/${s.id}`); }} className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px", background: "rgba(99,102,241,0.15)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.3)" }}>
                           ⚡ 24/7 Agent
                         </button>
+                        <button onClick={(e) => handleScanSingle(s.id, s.name, e)} className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px" }}>
+                          🔍 Scan
+                        </button>
                         <button onClick={(e) => handleOpenEdit(s, e)} className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px", background: "rgba(139,92,246,0.15)", color: "#c084fc", border: "1px solid rgba(139,92,246,0.3)" }}>
                           ✏️ Creds
                         </button>
@@ -217,33 +232,29 @@ export default function Servers() {
             </h3>
             <form onSubmit={handleSubmit}>
               <div style={{ marginBottom: "14px" }}>
-                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>SERVER NAME *</label>
-                <input className="input-base" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Production Web Node 1" />
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>SERVER NAME</label>
+                <input className="input-base" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="prod-web-01" />
               </div>
               <div style={{ marginBottom: "14px" }}>
-                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>IP ADDRESS *</label>
-                <input className="input-base" required value={form.ip_address} onChange={(e) => setForm({ ...form, ip_address: e.target.value })} placeholder="e.g. 185.220.63.56" />
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>IP ADDRESS</label>
+                <input className="input-base" required value={form.ip_address} onChange={(e) => setForm({ ...form, ip_address: e.target.value })} placeholder="192.168.1.100" />
               </div>
               <div style={{ marginBottom: "14px" }}>
-                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>ENVIRONMENT</label>
-                <select className="input-base" value={form.environment} onChange={(e) => setForm({ ...form, environment: e.target.value })}>
-                  <option value="production">Production</option>
-                  <option value="staging">Staging</option>
-                  <option value="development">Development</option>
-                  <option value="testing">Testing</option>
-                </select>
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>SSH USERNAME</label>
+                <input className="input-base" value={form.ssh_username} onChange={(e) => setForm({ ...form, ssh_username: e.target.value })} placeholder="root" />
               </div>
               <div style={{ marginBottom: "14px" }}>
-                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>WHM HOST / IP (Optional)</label>
-                <input className="input-base" value={form.whm_host} onChange={(e) => setForm({ ...form, whm_host: e.target.value })} placeholder="whm.example.com or IP" />
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>SSH PASSWORD (encrypted in DB)</label>
+                <input className="input-base" type="password" value={form.ssh_password} onChange={(e) => setForm({ ...form, ssh_password: e.target.value })} placeholder="Leave blank to keep existing password" />
               </div>
               <div style={{ marginBottom: "20px" }}>
-                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>WHM API TOKEN (Optional)</label>
-                <input className="input-base" type="password" value={form.whm_token} onChange={(e) => setForm({ ...form, whm_token: e.target.value })} placeholder="Paste WHM API Token" />
+                <label style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>WHM HOST & API TOKEN (optional)</label>
+                <input className="input-base" value={form.whm_host} onChange={(e) => setForm({ ...form, whm_host: e.target.value })} placeholder="whm.example.com or IP" style={{ marginBottom: "8px" }} />
+                <input className="input-base" type="password" value={form.whm_token} onChange={(e) => setForm({ ...form, whm_token: e.target.value })} placeholder="WHM API Token (leave blank to keep existing)" />
               </div>
               <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
                 <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="btn-secondary">Cancel</button>
-                <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : editId ? "Save Changes" : "Save Server"}</button>
+                <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving..." : editId ? "Update & Scan" : "Add Server & Scan"}</button>
               </div>
             </form>
           </div>

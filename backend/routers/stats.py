@@ -48,7 +48,7 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
 
     top_risk_servers = sorted(servers, key=lambda x: x.risk_score or 0, reverse=True)[:5]
 
-    live_projects      = sum(1 for d in discoveries if getattr(d, "is_live", False))
+    live_projects      = sum(1 for d in discoveries if getattr(d, "is_live", False) and not getattr(d, "is_inactive", False))
     duplicate_projects = sum(1 for d in discoveries if getattr(d, "is_duplicate", False))
     inactive_projects  = sum(1 for d in discoveries if getattr(d, "is_inactive", False))
 

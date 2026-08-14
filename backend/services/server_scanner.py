@@ -177,9 +177,45 @@ def collect_system_info(client: paramiko.SSHClient) -> dict:
 
 
 def discover_projects_via_ssh(client: paramiko.SSHClient) -> list:
+    """100% Dynamic SSH Project Discovery — checks cPanel domains & standard Linux vhost directories."""
     projects = []
-    seen_paths = set()
+    seen_domains = set()
 
+    # 1. If cPanel server, read /etc/trueuserdomains & /var/cpanel/suspended for exact live domains
+    trueuserdomains_raw = _run(client, "cat /etc/trueuserdomains 2>/dev/null", timeout=3)
+    suspended_users_raw = _run(client, "ls -1 /var/cpanel/suspended 2>/dev/null", timeout=2)
+    suspended_set = set(u.strip() for u in suspended_users_raw.splitlines() if u.strip())
+
+    if trueuserdomains_raw and ":" in trueuserdomains_raw:
+        for line in trueuserdomains_raw.splitlines():
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            parts = line.split(":", 1)
+            domain = parts[0].strip()
+            user = parts[1].strip()
+
+            # Strictly skip suspended cPanel accounts
+            if user in suspended_set:
+                continue
+
+            if domain and domain not in seen_domains:
+                seen_domains.add(domain)
+                proj_path = f"/home/{user}/public_html"
+                projects.append({
+                    "name": domain,
+                    "domain": domain,
+                    "path": proj_path,
+                    "owner": user,
+                    "framework": "php",
+                    "language": "php",
+                    "source": "ssh",
+                })
+        if projects:
+            return projects
+
+    # 2. Standard Linux scan paths (/var/www, /home, etc.)
+    seen_paths = set()
     for base in LINUX_SCAN_PATHS:
         cmd = f"find {base} -maxdepth 3 -type d 2>/dev/null | head -100"
         output = _run(client, cmd, timeout=3)
@@ -187,6 +223,16 @@ def discover_projects_via_ssh(client: paramiko.SSHClient) -> list:
             path = path.strip()
             if not path or path in seen_paths:
                 continue
+
+            # Check if this directory belongs to a suspended user
+            path_parts = path.split("/")
+            if "home" in path_parts:
+                home_idx = path_parts.index("home")
+                if len(path_parts) > home_idx + 1:
+                    user_folder = path_parts[home_idx + 1]
+                    if user_folder in suspended_set:
+                        continue
+
             dirname = os.path.basename(path)
             if dirname in SKIP_DIRS or any(dirname.startswith(p) for p in SKIP_PREFIXES):
                 continue
@@ -274,6 +320,20 @@ def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:
     db.commit()
 
     try:
+        # 1. If WHM credentials exist, prioritize WHM API discovery
+        whm_token = decrypt_credential(server.whm_token) if server.whm_token else os.getenv("WHM_TOKEN")
+        whm_host = server.whm_host or server.ip_address
+        if whm_token and whm_host:
+            whm_res = _whm_or_simulated_scan(db, server, job)
+            if whm_res.get("whm_connected") or whm_res.get("projects_found", 0) > 0:
+                duration = time.time() - start_time
+                job.finished_at = datetime.utcnow()
+                job.duration_seconds = round(duration, 1)
+                job.status = "success"
+                db.commit()
+                return whm_res
+
+        # 2. Fallback to SSH discovery
         client = connect_ssh(server)
         ssh_available = client is not None
 
@@ -314,11 +374,18 @@ def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:
 def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     """100% Dynamic SSH Server Discovery — inspects remote server files, system specs, services & web dirs."""
     sys_info = collect_system_info(client)
-    for key, val in sys_info.items():
-        if hasattr(server, key):
-            setattr(server, key, val)
+    # If 24/7 Agent is installed, preserve agent's live kernel metrics
+    if not (server.agent_installed or server.data_source == "agent"):
+        for key, val in sys_info.items():
+            if hasattr(server, key):
+                setattr(server, key, val)
+        server.data_source = "ssh"
+    else:
+        # Still update static hardware fields like hostname, kernel, cpu_model if missing
+        for key in ("hostname", "os_name", "os_version", "kernel", "architecture", "cpu_cores", "cpu_model", "ram_total_gb"):
+            if not getattr(server, key, None) and key in sys_info:
+                setattr(server, key, sys_info[key])
 
-    server.data_source = "ssh"
     server.status = "active"
     server.scan_status = "success"
     server.scan_error = None
@@ -378,14 +445,41 @@ def _clear_server_discoveries(db, server_id: int):
 
 def is_account_suspended(acc: dict) -> bool:
     """
-    Accurately detect if a cPanel account is CURRENTLY suspended in WHM listaccts.
-    cPanel returns 'suspended': '1' or 1 when suspended, and 'suspended': '0' or 0 when active.
+    Accurately detect if a cPanel account is suspended.
+    In WHM API 1 listaccts:
+      - Active accounts have suspended == 0 or '0', suspendreason == 'not suspended' or '' or None, suspendtime == 0 or '0'.
+      - Suspended accounts have suspended == 1 or '1', or suspendtime > 0, or suspendreason indicating a reason (e.g. 'manual', 'Non-payment').
     """
-    val = acc.get("suspended")
-    if val is None:
-        return False
-    s_val = str(val).strip().lower()
-    return s_val in ("1", "true", "yes")
+    # 1. Direct suspended flag check (most authoritative in WHM)
+    raw_s = acc.get("suspended")
+    if raw_s is not None:
+        s_str = str(raw_s).strip().lower()
+        if s_str in ("1", "true", "yes"):
+            return True
+        if s_str in ("0", "false", "no"):
+            return False
+
+    # 2. Check suspendtime (Unix timestamp > 0 indicates suspension)
+    raw_time = acc.get("suspendtime")
+    if raw_time is not None:
+        try:
+            t_int = int(str(raw_time).strip())
+            if t_int > 0:
+                return True
+        except Exception:
+            pass
+
+    # 3. Check suspendreason (skip known non-suspended placeholders)
+    reason = acc.get("suspendreason")
+    if reason:
+        r_str = str(reason).strip().lower()
+        non_suspended_phrases = (
+            "not suspended", "not_suspended", "none", "null", "false", "", "0", "-", "n/a", "undefined"
+        )
+        if r_str not in non_suspended_phrases:
+            return True
+
+    return False
 
 
 def _whm_or_simulated_scan(db, server, job: ScanJob) -> dict:
