@@ -34,6 +34,11 @@ export default function Dashboard() {
       if (sRes?.data) setStats(sRes.data);
     } catch (e) {
       console.error("Failed to fetch dashboard stats:", e);
+      setStats({
+          healthy_servers: 0, warning_servers: 0, critical_servers: 0,
+          total_servers: 0, live_projects: 0, inactive_projects: 0, duplicate_projects: 0,
+          top_risk_servers: []
+      });
     }
 
     try {

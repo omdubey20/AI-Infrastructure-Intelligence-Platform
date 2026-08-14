@@ -277,7 +277,18 @@ def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:
         client = connect_ssh(server)
         ssh_available = client is not None
 
-        if ssh_available:
+        if server.whm_token or os.getenv("WHM_TOKEN") or server.whm_host:
+            # If WHM is configured, prioritize it for accurate cPanel project discovery!
+            result = _whm_or_simulated_scan(db, server, job)
+            if ssh_available:
+                sys_info = collect_system_info(client)
+                if not (server.agent_installed or server.data_source == "agent"):
+                    for key, val in sys_info.items():
+                        if hasattr(server, key) and key not in ["id", "ip_address", "name", "created_at"]:
+                            setattr(server, key, val)
+                client.close()
+                result["ssh_connected"] = True
+        elif ssh_available:
             result = _ssh_scan(db, server, client, job)
         else:
             result = _whm_or_simulated_scan(db, server, job)
@@ -327,7 +338,9 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     db.commit()
 
     raw_projects = discover_projects_via_ssh(client)
-    _clear_server_discoveries(db, server.id)
+    
+    if raw_projects:
+        _clear_server_discoveries(db, server.id)
 
     created_count = 0
     for proj in raw_projects:

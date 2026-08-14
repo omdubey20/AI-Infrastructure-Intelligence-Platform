@@ -74,6 +74,7 @@ def run_schema_migrations():
         "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_version VARCHAR",
         "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_last_seen TIMESTAMP",
         "ALTER TABLE servers ADD COLUMN IF NOT EXISTS top_processes TEXT",
+        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS cpu_spike_started_at TIMESTAMP",
         "ALTER TABLE servers ADD COLUMN IF NOT EXISTS whm_accounts_count INTEGER DEFAULT 0",
         "ALTER TABLE servers ADD COLUMN IF NOT EXISTS credentials_encrypted BOOLEAN DEFAULT FALSE",
         "ALTER TABLE project_discoveries ADD COLUMN IF NOT EXISTS http_status INTEGER",

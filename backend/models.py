@@ -61,6 +61,7 @@ class Server(Base):
     memory_usage = Column(Integer, default=0)
     disk_usage = Column(Integer, default=0)
     swap_usage = Column(Integer, default=0)
+    cpu_spike_started_at = Column(DateTime, nullable=True)
     load_avg_1 = Column(Float, default=0.0)
     load_avg_5 = Column(Float, default=0.0)
     load_avg_15 = Column(Float, default=0.0)
