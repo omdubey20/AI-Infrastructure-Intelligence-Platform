@@ -20,9 +20,9 @@ export default function Security() {
   const [testResult, setTestResult] = useState(null);
   const [filter, setFilter] = useState("all"); // all, CRITICAL, WARNING
 
-  const fetchSecurityData = async () => {
+  const fetchSecurityData = async (isInitial = false) => {
     try {
-      setLoading(true);
+      if (isInitial) setLoading(true);
       const [alertsRes, cfgRes] = await Promise.all([
         api.get("/security/alerts"),
         api.get("/security/config"),
@@ -37,12 +37,12 @@ export default function Security() {
     } catch (err) {
       console.error("Failed to load security data:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSecurityData();
+    fetchSecurityData(true);
   }, []);
 
   const handleScanNow = async () => {

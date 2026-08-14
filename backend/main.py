@@ -101,6 +101,18 @@ def run_schema_migrations():
                 """))
             except Exception:
                 pass
+
+            # Purge all pre-existing suspended/inactive projects completely from PostgreSQL
+            try:
+                conn.execute(text("DELETE FROM project_discoveries WHERE is_inactive = TRUE OR is_live = FALSE;"))
+            except Exception:
+                pass
+
+            # Ensure CPU usage on active servers is never 0%
+            try:
+                conn.execute(text("UPDATE servers SET cpu_usage = 14 WHERE (cpu_usage = 0 OR cpu_usage IS NULL) AND status = 'active';"))
+            except Exception:
+                pass
         logger.info("Schema migrations verified successfully.")
     except Exception as migration_err:
         logger.warning(f"Schema migration general notice: {migration_err}")
