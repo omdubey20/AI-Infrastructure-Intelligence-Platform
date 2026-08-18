@@ -71,8 +71,71 @@ def ensure_default_admin():
     finally:
         db.close()
 
+def migrate_db_schema():
+    """Ensure all required tables and columns exist in PostgreSQL/SQLite even if created with older schema."""
+    from sqlalchemy import text
+    columns_to_add = [
+        # Table, Column, Type
+        ("servers", "agent_api_key", "VARCHAR"),
+        ("servers", "agent_installed", "BOOLEAN DEFAULT FALSE"),
+        ("servers", "agent_last_seen", "TIMESTAMP"),
+        ("servers", "data_source", "VARCHAR DEFAULT 'estimated'"),
+        ("servers", "last_scanned_at", "TIMESTAMP"),
+        ("servers", "last_full_scan_at", "TIMESTAMP"),
+        ("servers", "scan_status", "VARCHAR DEFAULT 'never_scanned'"),
+        ("servers", "scan_error", "TEXT"),
+        ("servers", "ai_risk_confidence", "FLOAT DEFAULT 0.0"),
+        ("servers", "ai_recommendation", "VARCHAR"),
+        ("servers", "whm_host", "VARCHAR"),
+        ("servers", "whm_token", "VARCHAR"),
+        ("servers", "whm_port", "INTEGER DEFAULT 2087"),
+        ("servers", "whm_accounts_count", "INTEGER DEFAULT 0"),
+        ("servers", "ssh_username", "VARCHAR"),
+        ("servers", "ssh_password", "VARCHAR"),
+        ("servers", "ssh_private_key", "VARCHAR"),
+        ("servers", "ssh_port", "INTEGER DEFAULT 22"),
+        ("servers", "credentials_encrypted", "BOOLEAN DEFAULT FALSE"),
+        ("alerts", "notification_sent", "BOOLEAN DEFAULT FALSE"),
+        ("alerts", "teams_sent_at", "TIMESTAMP"),
+        ("alerts", "email_sent_at", "TIMESTAMP"),
+        ("alerts", "site_id", "INTEGER"),
+        ("alerts", "resolved_at", "TIMESTAMP"),
+        ("project_discoveries", "dns_points_here", "BOOLEAN DEFAULT FALSE"),
+        ("project_discoveries", "web_config_active", "BOOLEAN DEFAULT FALSE"),
+        ("project_discoveries", "has_ssl", "BOOLEAN DEFAULT FALSE"),
+        ("project_discoveries", "ssl_expiry_days", "INTEGER"),
+        ("project_discoveries", "is_live", "BOOLEAN DEFAULT FALSE"),
+        ("project_discoveries", "env_type", "VARCHAR DEFAULT 'unknown'"),
+        ("project_discoveries", "http_status", "INTEGER"),
+        ("project_discoveries", "is_duplicate", "BOOLEAN DEFAULT FALSE"),
+        ("project_discoveries", "duplicate_of_id", "INTEGER"),
+        ("project_discoveries", "duplicate_confidence", "INTEGER DEFAULT 0"),
+        ("project_discoveries", "duplicate_signals", "TEXT"),
+        ("project_discoveries", "is_inactive", "BOOLEAN DEFAULT FALSE"),
+        ("project_discoveries", "inactivity_signals", "TEXT"),
+        ("project_discoveries", "risk_score", "INTEGER DEFAULT 0"),
+        ("project_discoveries", "ai_confidence", "FLOAT DEFAULT 0.0"),
+        ("project_discoveries", "recommendation", "VARCHAR DEFAULT 'keep'"),
+        ("project_discoveries", "user_override", "VARCHAR"),
+        ("project_discoveries", "data_source", "VARCHAR DEFAULT 'estimated'"),
+        ("project_discoveries", "last_synced_at", "TIMESTAMP"),
+    ]
+
+    for table, col, col_type in columns_to_add:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+        except Exception:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
+
+
 try:
     Base.metadata.create_all(bind=engine, checkfirst=True)
+    migrate_db_schema()
     ensure_default_admin()
 except Exception as db_init_err:
     logger.warning(f"Database initialization notice on startup: {db_init_err}")
