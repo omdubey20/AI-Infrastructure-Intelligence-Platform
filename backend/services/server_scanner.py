@@ -18,7 +18,7 @@ from typing import Optional, Tuple
 
 import paramiko
 
-from models import ProjectDiscovery, ScanJob, AIInsight, Project
+from models import Server, ProjectDiscovery, ScanJob, AIInsight, Project
 from services.credential_encryption import decrypt_credential
 from services.risk_engine import calculate_server_risk
 

@@ -306,7 +306,7 @@ class HealthSnapshot(Base):
         Index("ix_hs_recorded", "recorded_at"),
     )
 
-    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     server_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
     site_id = Column(Integer, ForeignKey("project_discoveries.id"), nullable=True)
     metric = Column(String(50), nullable=False)   # loadavg, cpu_usage, memory_usage, disk_usage, http_status
@@ -349,7 +349,7 @@ class UptimeCheck(Base):
         Index("ix_uc_checked", "checked_at"),
     )
 
-    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     site_id = Column(Integer, ForeignKey("project_discoveries.id"), nullable=True)
     server_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
     url = Column(String(500), nullable=False)

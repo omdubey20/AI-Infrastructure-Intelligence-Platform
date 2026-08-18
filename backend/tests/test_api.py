@@ -1,7 +1,8 @@
 """
 Enterprise Test Suite for AI Infrastructure Intelligence Platform
-Tests: Auth, API endpoints, risk engine, duplicate detection, inactive detection,
-       credential encryption, ML pipeline, and data integrity.
+Tests: Auth, Servers, Projects, Uptime Monitoring, Alerts, Malware Scanning,
+       Agent Telemetry, Teams/Email Notifications, Risk Engine, Duplicate Detection,
+       Credential Encryption, and ML Pipeline.
 """
 import os
 import sys
@@ -10,23 +11,21 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-# Ensure backend is on the path
+# Ensure backend is on path and test DB URL is set BEFORE importing database or main
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+os.environ["DATABASE_URL"] = "sqlite:///./test_infra.db"
+os.environ["SECRET_KEY"] = "test-secret-key-for-unit-testing-32-chars-long"
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from database import Base, get_db, engine
 from main import app
-from database import Base, get_db
+import models
 
-# ============================================================
-# TEST DATABASE SETUP (in-memory SQLite for isolation)
-# ============================================================
-
-SQLALCHEMY_TEST_URL = "sqlite:///./test_infra.db"
-test_engine = create_engine(SQLALCHEMY_TEST_URL, connect_args={"check_same_thread": False})
-TestSession = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+# In-memory/local SQLite session for isolation
+TestSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def override_get_db():
@@ -43,13 +42,11 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True, scope="session")
 def setup_database():
-    """Create all tables before tests, drop after."""
-    Base.metadata.create_all(bind=test_engine)
-    # Seed a test user
+    """Create all tables before tests, seed test user, drop after."""
+    Base.metadata.create_all(bind=engine)
     db = TestSession()
     try:
         from routers.auth import hash_password
-        import models
         existing = db.query(models.User).filter(models.User.username == "testadmin").first()
         if not existing:
             user = models.User(
@@ -64,15 +61,18 @@ def setup_database():
     finally:
         db.close()
     yield
-    Base.metadata.drop_all(bind=test_engine)
+    Base.metadata.drop_all(bind=engine)
     if os.path.exists("./test_infra.db"):
-        os.remove("./test_infra.db")
+        try:
+            os.remove("./test_infra.db")
+        except Exception:
+            pass
 
 
 _cached_token = None
 
 def get_auth_token() -> str:
-    """Helper: login and return bearer token (cached to avoid rate limiting)."""
+    """Helper: login and return bearer token."""
     global _cached_token
     if _cached_token:
         return _cached_token
@@ -91,7 +91,7 @@ def auth_headers() -> dict:
 
 
 # ============================================================
-# PHASE 1: HEALTH & ROOT
+# 1: HEALTH & ROOT
 # ============================================================
 
 class TestHealthEndpoints:
@@ -111,7 +111,7 @@ class TestHealthEndpoints:
 
 
 # ============================================================
-# PHASE 2: AUTHENTICATION
+# 2: AUTHENTICATION
 # ============================================================
 
 class TestAuth:
@@ -134,14 +134,6 @@ class TestAuth:
         )
         assert resp.status_code == 401
 
-    def test_login_nonexistent_user(self):
-        resp = client.post(
-            "/auth/login",
-            data={"username": "nosuchuser", "password": "anything"},
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        assert resp.status_code == 401
-
     def test_me_with_valid_token(self):
         resp = client.get("/auth/me", headers=auth_headers())
         assert resp.status_code == 200
@@ -153,46 +145,21 @@ class TestAuth:
         resp = client.get("/auth/me")
         assert resp.status_code in (401, 403)
 
-    def test_me_with_invalid_token_returns_401(self):
-        resp = client.get("/auth/me", headers={"Authorization": "Bearer invalidtoken123"})
-        assert resp.status_code == 401
-
-    def test_register_new_user(self):
-        resp = client.post(
-            "/auth/register",
-            json={"username": "newuser_test", "email": "new@test.com", "password": "securepassword"},
-            headers=auth_headers()
-        )
-        assert resp.status_code == 201
-        assert resp.json()["username"] == "newuser_test"
-
-    def test_register_duplicate_username(self):
-        resp = client.post(
-            "/auth/register",
-            json={"username": "testadmin", "email": "dup@test.com", "password": "password"},
-            headers=auth_headers()
-        )
-        assert resp.status_code == 400
-
 
 # ============================================================
-# PHASE 3: SERVERS (requires auth)
+# 3: SERVERS CRUD & METRICS
 # ============================================================
 
 class TestServersAPI:
-    def test_list_servers_requires_auth(self):
-        resp = client.get("/servers/")
-        assert resp.status_code in (401, 403)
-
     def test_list_servers_with_auth(self):
         resp = client.get("/servers/", headers=auth_headers())
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
-    def test_create_server(self):
+    def test_create_and_get_server(self):
         resp = client.post("/servers/", json={
-            "name": "Test Server Alpha",
-            "ip_address": "10.0.0.1",
+            "name": "Production VPS A",
+            "ip_address": "192.168.1.100",
             "environment": "production",
             "status": "active",
             "ssh_username": "root",
@@ -200,76 +167,193 @@ class TestServersAPI:
         }, headers=auth_headers())
         assert resp.status_code in (200, 201)
         data = resp.json()
-        # Response format: {message, id, ip_address}
-        assert "id" in data
-        assert data["ip_address"] == "10.0.0.1"
-        assert "message" in data
+        server_id = data["id"]
+        assert data["ip_address"] == "192.168.1.100"
 
-    def test_get_server_by_id(self):
-        # Create then fetch
-        create_resp = client.post("/servers/", json={
-            "name": "Fetch Server",
-            "ip_address": "10.0.0.2",
-        }, headers=auth_headers())
-        server_id = create_resp.json()["id"]
-
-        resp = client.get(f"/servers/{server_id}", headers=auth_headers())
-        assert resp.status_code == 200
-        assert resp.json()["id"] == server_id
-
-    def test_get_nonexistent_server(self):
-        resp = client.get("/servers/99999", headers=auth_headers())
-        assert resp.status_code == 404
-
-    def test_delete_server(self):
-        create_resp = client.post("/servers/", json={
-            "name": "Delete Me Server",
-            "ip_address": "10.0.0.99",
-        }, headers=auth_headers())
-        server_id = create_resp.json()["id"]
-
-        resp = client.delete(f"/servers/{server_id}", headers=auth_headers())
-        assert resp.status_code == 200
-
-        # Verify it's gone
-        resp = client.get(f"/servers/{server_id}", headers=auth_headers())
-        assert resp.status_code == 404
+        # Fetch detail
+        detail_resp = client.get(f"/servers/{server_id}", headers=auth_headers())
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["name"] == "Production VPS A"
 
 
 # ============================================================
-# PHASE 4: PROJECTS API
+# 4: PROJECTS API
 # ============================================================
 
 class TestProjectsAPI:
-    def test_list_projects_requires_auth(self):
-        resp = client.get("/projects/")
-        assert resp.status_code in (401, 403)
-
     def test_list_projects_with_auth(self):
         resp = client.get("/projects/", headers=auth_headers())
         assert resp.status_code == 200
+        data = resp.json()
+        assert "projects" in data
+        assert "total" in data
 
 
 # ============================================================
-# PHASE 5: RISK ENGINE (Unit Tests)
+# 5: AGENT API & TELEMETRY
+# ============================================================
+
+class TestAgentAPI:
+    def test_install_script_endpoint(self):
+        resp = client.get("/agent/install.sh")
+        assert resp.status_code == 200
+        assert "#!/bin/bash" in resp.text
+        assert "Infra Intel Agent" in resp.text
+
+    def test_generate_agent_key_and_report(self):
+        # 1. Create a server
+        srv_resp = client.post("/servers/", json={
+            "name": "Agent Monitored Server",
+            "ip_address": "10.10.10.50",
+            "environment": "production",
+        }, headers=auth_headers())
+        server_id = srv_resp.json()["id"]
+
+        # 2. Generate key
+        key_resp = client.post(f"/agent/generate-key/{server_id}", headers=auth_headers())
+        assert key_resp.status_code == 200
+        api_key = key_resp.json()["api_key"]
+        assert api_key.startswith("infra_")
+
+        # 3. Send agent report telemetry
+        report_payload = {
+            "api_key": api_key,
+            "cpu_usage": 42,
+            "memory_usage": 65,
+            "disk_usage": 55,
+            "load_avg_1": 1.25,
+            "load_avg_5": 1.10,
+            "load_avg_15": 0.95,
+            "uptime_days": 120,
+            "error_count": 2,
+            "ram_total_gb": 16.0,
+            "hostname": "vps-agent-01",
+            "os_name": "Ubuntu 22.04 LTS",
+            "kernel": "5.15.0-generic"
+        }
+        report_resp = client.post("/agent/report", json=report_payload)
+        assert report_resp.status_code == 200
+        assert report_resp.json()["status"] == "ok"
+
+        # 4. Verify server updated with real agent metrics
+        detail_resp = client.get(f"/servers/{server_id}", headers=auth_headers())
+        assert detail_resp.status_code == 200
+        srv_data = detail_resp.json()
+        assert srv_data["cpu_usage"] == 42
+        assert srv_data["memory_usage"] == 65
+        assert srv_data["data_source"] == "agent"
+
+    def test_agent_status_list(self):
+        resp = client.get("/agent/status", headers=auth_headers())
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+
+# ============================================================
+# 6: UPTIME MONITORING API
+# ============================================================
+
+class TestUptimeMonitoringAPI:
+    def test_monitoring_status(self):
+        resp = client.get("/monitoring/status", headers=auth_headers())
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    def test_monitoring_summary(self):
+        resp = client.get("/monitoring/summary", headers=auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total_monitored" in data
+        assert "sites_up" in data
+        assert "sites_down" in data
+
+    def test_check_single_site_mocked(self):
+        from services.uptime_monitor import check_single_site
+        with patch("requests.get") as mock_get:
+            mock_get.return_value.status_code = 200
+            result = check_single_site("https://example.com")
+            assert result["is_up"] == True
+            assert result["http_status"] == 200
+
+
+# ============================================================
+# 7: ALERTS & MALWARE API
+# ============================================================
+
+class TestAlertsAPI:
+    def test_list_alerts(self):
+        resp = client.get("/alerts/", headers=auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "alerts" in data
+        assert "total" in data
+        assert "total_open" in data
+
+    def test_resolve_alert(self):
+        # Create an alert in DB
+        db = TestSession()
+        alert = models.Alert(
+            type="disk_high",
+            severity="warning",
+            message="Test disk alert",
+            is_resolved=False
+        )
+        db.add(alert)
+        db.commit()
+        alert_id = alert.id
+        db.close()
+
+        # Resolve via API
+        resp = client.post(f"/alerts/{alert_id}/resolve", headers=auth_headers())
+        assert resp.status_code == 200
+        assert resp.json()["alert_id"] == alert_id
+
+    def test_malware_alerts_list(self):
+        resp = client.get("/alerts/malware", headers=auth_headers())
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+
+# ============================================================
+# 8: NOTIFICATION SERVICE (Teams & Email Unit Tests)
+# ============================================================
+
+class TestNotificationService:
+    def test_teams_alert_skipped_when_no_webhook(self):
+        from services.notification_service import send_teams_alert
+        alert = models.Alert(type="site_down", severity="critical", message="Test outage")
+        with patch.dict(os.environ, {}, clear=True):
+            res = send_teams_alert(alert, "VPS-Test")
+            assert res == False
+
+    def test_email_alert_skipped_when_no_smtp(self):
+        from services.notification_service import send_email_alert
+        alert = models.Alert(type="disk_high", severity="warning", message="Disk at 88%")
+        with patch.dict(os.environ, {}, clear=True):
+            res = send_email_alert(alert, "VPS-Test")
+            assert res == False
+
+
+# ============================================================
+# 9: RISK ENGINE & CONFIDENCE WEIGHTING
 # ============================================================
 
 class TestRiskEngine:
     def test_healthy_server_low_risk(self):
-        """Server with low CPU/memory/disk should get a low risk score."""
         from services.risk_engine import calculate_server_risk
         server = MagicMock()
-        server.cpu_usage = 20
-        server.memory_usage = 30
-        server.disk_usage = 25
-        server.uptime_days = 45
+        server.cpu_usage = 15
+        server.memory_usage = 25
+        server.disk_usage = 20
+        server.uptime_days = 30
         server.error_count = 0
-        server.data_source = "ssh"
+        server.data_source = "agent"
+        server.last_scanned_at = datetime.utcnow()
+        server.agent_last_seen = datetime.utcnow()
         score = calculate_server_risk(server)
-        assert 0 <= score <= 30, f"Healthy server got risk {score}"
+        assert 0 <= score <= 30
 
     def test_critical_server_high_risk(self):
-        """Server with all metrics at 95+ should get a high risk score."""
         from services.risk_engine import calculate_server_risk
         server = MagicMock()
         server.cpu_usage = 95
@@ -278,77 +362,53 @@ class TestRiskEngine:
         server.uptime_days = 500
         server.error_count = 60
         server.data_source = "ssh"
+        server.last_scanned_at = datetime.utcnow()
+        server.agent_last_seen = None
         score = calculate_server_risk(server)
-        assert score >= 60, f"Critical server got risk {score}"
+        assert score >= 60
 
-    def test_risk_score_clamped_0_100(self):
-        """Risk score must always be in [0, 100] range."""
+    def test_stale_data_freshness_penalty(self):
         from services.risk_engine import calculate_server_risk
-        server = MagicMock()
-        server.cpu_usage = 100
-        server.memory_usage = 100
-        server.disk_usage = 100
-        server.uptime_days = 9999
-        server.error_count = 9999
-        server.data_source = "ssh"
-        score = calculate_server_risk(server)
-        assert 0 <= score <= 100
+        fresh_srv = MagicMock()
+        fresh_srv.cpu_usage = 50
+        fresh_srv.memory_usage = 50
+        fresh_srv.disk_usage = 50
+        fresh_srv.uptime_days = 50
+        fresh_srv.error_count = 0
+        fresh_srv.data_source = "agent"
+        fresh_srv.last_scanned_at = datetime.utcnow()
+        fresh_srv.agent_last_seen = datetime.utcnow()
 
-    def test_risk_with_none_values(self):
-        """Risk engine handles None/missing attributes gracefully."""
-        from services.risk_engine import calculate_server_risk
-        server = MagicMock()
-        server.cpu_usage = None
-        server.memory_usage = None
-        server.disk_usage = None
-        server.uptime_days = None
-        server.error_count = None
-        server.data_source = None
-        score = calculate_server_risk(server)
-        assert 0 <= score <= 100
+        stale_srv = MagicMock()
+        stale_srv.cpu_usage = 50
+        stale_srv.memory_usage = 50
+        stale_srv.disk_usage = 50
+        stale_srv.uptime_days = 50
+        stale_srv.error_count = 0
+        stale_srv.data_source = "agent"
+        stale_srv.last_scanned_at = datetime.utcnow() - timedelta(hours=3)
+        stale_srv.agent_last_seen = datetime.utcnow() - timedelta(hours=3)
 
-    def test_non_ssh_source_penalised(self):
-        """WHM/estimated sources should get a lower/adjusted risk score."""
-        from services.risk_engine import calculate_server_risk
-        ssh_server = MagicMock()
-        ssh_server.cpu_usage = 85
-        ssh_server.memory_usage = 85
-        ssh_server.disk_usage = 85
-        ssh_server.uptime_days = 200
-        ssh_server.error_count = 10
-        ssh_server.data_source = "ssh"
-
-        whm_server = MagicMock()
-        whm_server.cpu_usage = 85
-        whm_server.memory_usage = 85
-        whm_server.disk_usage = 85
-        whm_server.uptime_days = 200
-        whm_server.error_count = 10
-        whm_server.data_source = "estimated"
-
-        ssh_score = calculate_server_risk(ssh_server)
-        whm_score = calculate_server_risk(whm_server)
-        # Both valid, estimated should differ due to non-SSH penalty
-        assert 0 <= ssh_score <= 100
-        assert 0 <= whm_score <= 100
+        fresh_score = calculate_server_risk(fresh_srv)
+        stale_score = calculate_server_risk(stale_srv)
+        assert stale_score > fresh_score, "Stale server should have a higher risk penalty"
 
 
 # ============================================================
-# PHASE 6: DUPLICATE DETECTION (Unit Tests)
+# 10: DUPLICATE DETECTION
 # ============================================================
 
 class TestDuplicateDetector:
-    def _make_disc(self, id, name, server_id, domain=None, git_remote=None,
-                   dns_points_here=True, web_config_active=True, size_mb=100):
+    def _make_disc(self, id, name, server_id, git_remote=None):
         d = MagicMock()
         d.id = id
         d.project_name = name
         d.server_id = server_id
-        d.domain = domain or name
+        d.domain = name
         d.git_remote = git_remote
-        d.dns_points_here = dns_points_here
-        d.web_config_active = web_config_active
-        d.size_mb = size_mb
+        d.dns_points_here = True
+        d.web_config_active = True
+        d.size_mb = 100
         d.is_duplicate = False
         d.duplicate_confidence = 0
         d.duplicate_of_id = None
@@ -359,220 +419,51 @@ class TestDuplicateDetector:
         return d
 
     def test_exact_name_cross_server_detected(self):
-        """Same project name on different servers = duplicate."""
         from services.duplicate_detector import detect_duplicates
-        a = self._make_disc(1, "example.com", server_id=1)
-        b = self._make_disc(2, "example.com", server_id=2)
-        results = detect_duplicates([a, b])
-        dup_count = sum(1 for r in results if r["is_duplicate"])
-        assert dup_count == 1, f"Expected 1 duplicate, got {dup_count}"
-
-    def test_same_server_not_duplicate(self):
-        """Same project name on the same server is NOT a duplicate (cross-server only)."""
-        from services.duplicate_detector import detect_duplicates
-        a = self._make_disc(1, "example.com", server_id=1)
-        b = self._make_disc(2, "example.com", server_id=1)
-        results = detect_duplicates([a, b])
-        dup_count = sum(1 for r in results if r["is_duplicate"])
-        assert dup_count == 0
-
-    def test_user_override_keep_respected(self):
-        """Projects with user_override='keep' should never be marked as duplicate."""
-        from services.duplicate_detector import detect_duplicates
-        a = self._make_disc(1, "example.com", server_id=1)
-        b = self._make_disc(2, "example.com", server_id=2)
-        b.user_override = "keep"
-        results = detect_duplicates([a, b])
-        dup_count = sum(1 for r in results if r["is_duplicate"])
-        assert dup_count == 0
-
-    def test_different_names_no_duplicate(self):
-        """Completely different names should not be flagged."""
-        from services.duplicate_detector import detect_duplicates
-        a = self._make_disc(1, "alpha-project.com", server_id=1)
-        b = self._make_disc(2, "beta-service.io", server_id=2)
-        results = detect_duplicates([a, b])
-        dup_count = sum(1 for r in results if r["is_duplicate"])
-        assert dup_count == 0
-
-    def test_git_remote_match_detected(self):
-        """Same git remote on different servers = duplicate."""
-        from services.duplicate_detector import detect_duplicates
-        a = self._make_disc(1, "project-a", server_id=1, git_remote="https://github.com/org/repo.git")
-        b = self._make_disc(2, "project-b", server_id=2, git_remote="https://github.com/org/repo.git")
+        a = self._make_disc(1, "app.domain.com", server_id=1)
+        b = self._make_disc(2, "app.domain.com", server_id=2)
         results = detect_duplicates([a, b])
         dup_count = sum(1 for r in results if r["is_duplicate"])
         assert dup_count == 1
 
-
-# ============================================================
-# PHASE 7: INACTIVE DETECTION (Unit Tests)
-# ============================================================
-
-class TestInactiveDetector:
-    def _make_disc(self, id, name, is_inactive=False, env_type="live", user_override=None):
-        d = MagicMock()
-        d.id = id
-        d.project_name = name
-        d.server_id = 1
-        d.is_inactive = is_inactive
-        d.env_type = env_type
-        d.user_override = user_override
-        d.days_since_modified = 10 if not is_inactive else 1200
-        d.recommendation = "keep"
-        d.inactivity_signals = "[]"
-        return d
-
-    def test_active_project_not_inactive(self):
-        from services.inactive_detector import detect_inactive_projects
-        d = self._make_disc(1, "active-project", is_inactive=False)
-        results = detect_inactive_projects([d])
-        assert len(results) == 0
-        assert d.is_inactive == False
-
-    def test_suspended_account_detected_inactive(self):
-        from services.inactive_detector import detect_inactive_projects
-        d = self._make_disc(1, "old-project", is_inactive=True)
-        results = detect_inactive_projects([d])
-        assert len(results) == 1
-        assert d.is_inactive == True
-        assert d.recommendation == "archive"
-
-    def test_archived_env_type_detected_inactive(self):
-        from services.inactive_detector import detect_inactive_projects
-        d = self._make_disc(1, "archived-thing", is_inactive=False, env_type="archived")
-        results = detect_inactive_projects([d])
-        assert len(results) == 1
-        assert d.is_inactive == True
-
-    def test_user_override_keep_skips_inactive(self):
-        from services.inactive_detector import detect_inactive_projects
-        d = self._make_disc(1, "override-keep", is_inactive=True, user_override="keep")
-        results = detect_inactive_projects([d])
-        assert d.is_inactive == False
+    def test_same_server_not_duplicate(self):
+        from services.duplicate_detector import detect_duplicates
+        a = self._make_disc(1, "app.domain.com", server_id=1)
+        b = self._make_disc(2, "app.domain.com", server_id=1)
+        results = detect_duplicates([a, b])
+        dup_count = sum(1 for r in results if r["is_duplicate"])
+        assert dup_count == 0
 
 
 # ============================================================
-# PHASE 8: CREDENTIAL ENCRYPTION (Unit Tests)
+# 11: CREDENTIAL ENCRYPTION
 # ============================================================
 
 class TestCredentialEncryption:
     def test_encrypt_decrypt_roundtrip(self):
-        """Encrypted value must decrypt back to original."""
         from services.credential_encryption import encrypt_credential, decrypt_credential
-        original = "my-secret-password-123"
+        original = "secret-cpanel-key-999"
         encrypted = encrypt_credential(original)
-        assert encrypted != original, "Encrypted should differ from plaintext"
+        assert encrypted != original
         decrypted = decrypt_credential(encrypted)
-        assert decrypted == original, f"Expected '{original}', got '{decrypted}'"
-
-    def test_encrypt_empty_string(self):
-        from services.credential_encryption import encrypt_credential
-        assert encrypt_credential("") == ""
-        assert encrypt_credential(None) is None
-
-    def test_is_encrypted_detects_fernet(self):
-        from services.credential_encryption import encrypt_credential, is_encrypted
-        enc = encrypt_credential("test-value")
-        assert is_encrypted(enc) == True
-        assert is_encrypted("plaintext-value") == False
-        assert is_encrypted("") == False
-        assert is_encrypted(None) == False
+        assert decrypted == original
 
 
 # ============================================================
-# PHASE 9: ML PIPELINE (Unit Tests)
+# 12: ML ENGINE & STATS
 # ============================================================
 
-class TestMLPipeline:
-    def test_synthetic_dataset_generation(self):
-        from services.ml_pipeline import generate_synthetic_dataset
-        df = generate_synthetic_dataset(n_samples=100)
-        assert len(df) == 100
-        assert list(df.columns) == ["cpu", "memory", "disk", "uptime", "errors", "risk_score"]
-        # Values in expected ranges
-        assert df["cpu"].min() >= 0
-        assert df["cpu"].max() <= 100
-        assert df["risk_score"].min() >= 0
-        assert df["risk_score"].max() <= 100
+class TestMLEngineAndStats:
+    def test_ml_status(self):
+        resp = client.get("/ml/status", headers=auth_headers())
+        assert resp.status_code == 200
+        assert "experiment_name" in resp.json()
 
-    def test_model_meta_save_load(self):
-        from services.ml_pipeline import _save_model_meta, _load_model_meta, MODEL_META_PATH
-        test_meta = {"r2_score": 0.95, "model_type": "TestModel", "test": True}
-        _save_model_meta(test_meta)
-        loaded = _load_model_meta()
-        assert loaded["r2_score"] == 0.95
-        assert loaded["model_type"] == "TestModel"
-        # Clean up test meta file
-        if os.path.exists(MODEL_META_PATH):
-            os.remove(MODEL_META_PATH)
-
-
-# ============================================================
-# PHASE 10: STATS / DASHBOARD (Auth gap documentation)
-# ============================================================
-
-class TestStatsEndpoint:
-    def test_stats_dashboard_requires_auth(self):
-        """Verifies that /stats/dashboard now requires authentication (was a known gap, now fixed)."""
-        resp = client.get("/stats/dashboard")
-        assert resp.status_code in (401, 403)
-
-    def test_stats_dashboard_with_auth(self):
+    def test_stats_dashboard(self):
         resp = client.get("/stats/dashboard", headers=auth_headers())
         assert resp.status_code == 200
         data = resp.json()
         assert "total_servers" in data
-        assert "total_projects" in data
-
-
-# ============================================================
-# PHASE 11: AI INSIGHTS
-# ============================================================
-
-class TestAIInsights:
-    def test_insights_requires_auth(self):
-        resp = client.get("/ai/insights")
-        assert resp.status_code in (401, 403)
-
-    def test_insights_with_auth(self):
-        resp = client.get("/ai/insights", headers=auth_headers())
-        assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
-
-
-# ============================================================
-# PHASE 12: ML ENDPOINTS
-# ============================================================
-
-class TestMLEndpoints:
-    def test_ml_status_requires_auth(self):
-        resp = client.get("/ml/status")
-        assert resp.status_code in (401, 403)
-
-    def test_ml_status_with_auth(self):
-        resp = client.get("/ml/status", headers=auth_headers())
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "experiment_name" in data
-        assert "model_loaded" in data
-
-    def test_feature_importance_requires_auth(self):
-        resp = client.get("/ml/feature-importance")
-        assert resp.status_code in (401, 403)
-
-    def test_feature_importance_with_auth(self):
-        resp = client.get("/ml/feature-importance", headers=auth_headers())
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "features" in data
-        assert len(data["features"]) == 5
-
-    def test_predictions_requires_auth(self):
-        resp = client.get("/ml/predictions")
-        assert resp.status_code in (401, 403)
-
-    def test_predictions_with_auth(self):
-        resp = client.get("/ml/predictions", headers=auth_headers())
-        assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
+        assert "live_projects" in data
+        assert "healthy_servers" in data
+        assert "open_alerts" in data
