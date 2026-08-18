@@ -7,9 +7,12 @@ export default function Intelligence() {
   const [featureImportance, setFeatureImportance] = useState([]);
   const [insights, setInsights] = useState([]);
   const [predictions, setPredictions] = useState([]);
+  const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [retraining, setRetraining] = useState(false);
   const [retrainMsg, setRetrainMsg] = useState(null);
+  const [scanningServer, setScanningServer] = useState(null);
+  const [scanResult, setScanResult] = useState(null);
 
   const loadIntel = async () => {
     try {
@@ -40,6 +43,13 @@ export default function Intelligence() {
       console.error("ml/predictions error:", e);
     }
 
+    try {
+      const srvRes = await api.get("/servers/");
+      setServers(Array.isArray(srvRes.data) ? srvRes.data : []);
+    } catch (e) {
+      console.error("servers error:", e);
+    }
+
     setLoading(false);
   };
 
@@ -63,6 +73,25 @@ export default function Intelligence() {
     }
   };
 
+  const handleSecurityScan = async (serverId, serverName) => {
+    setScanningServer(serverId);
+    setScanResult(null);
+    try {
+      const res = await api.post(`/alerts/scan-malware/${serverId}`);
+      const threats = res.data?.threats_found || 0;
+      setScanResult({
+        ok: threats === 0,
+        msg: threats === 0
+          ? `✅ ${serverName}: No threats detected.`
+          : `🦠 ${serverName}: ${threats} threat(s) found! Check Alerts page.`,
+      });
+    } catch (e) {
+      setScanResult({ ok: false, msg: `Scan failed for ${serverName}: ${e.response?.data?.detail || e.message}` });
+    } finally {
+      setScanningServer(null);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh", color: "#94a3b8" }}>
@@ -80,7 +109,7 @@ export default function Intelligence() {
           </p>
           <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Intelligence Platform</h1>
           <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-            MLflow experiment tracking, model feature importance, and automated AI risk recommendations
+            MLflow experiment tracking, model feature importance, security scanning, and automated AI risk recommendations
           </p>
         </div>
 
@@ -153,6 +182,57 @@ export default function Intelligence() {
             ))
           )}
         </div>
+      </div>
+
+      {/* Security Scan Section */}
+      <div className="card" style={{ marginBottom: "28px" }}>
+        <h3 style={{ fontSize: "13px", fontWeight: 800, color: "#f87171", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px" }}>
+          🛡️ Security Scanning — Malware Detection
+        </h3>
+        <p style={{ color: "#94a3b8", fontSize: "13px", marginBottom: "16px" }}>
+          Run on-demand malware scans via SSH. Checks for PHP shells, suspicious cron jobs, unauthorized SUID binaries, and ClamAV results.
+        </p>
+
+        {scanResult && (
+          <div style={{
+            padding: "10px 16px", borderRadius: "8px", marginBottom: "16px",
+            background: scanResult.ok ? "rgba(34,197,94,0.12)" : "rgba(248,113,113,0.12)",
+            border: scanResult.ok ? "1px solid rgba(34,197,94,0.3)" : "1px solid rgba(248,113,113,0.3)",
+            color: scanResult.ok ? "#4ade80" : "#f87171", fontSize: "13px", fontWeight: 600,
+          }}>
+            {scanResult.msg}
+          </div>
+        )}
+
+        {servers.length === 0 ? (
+          <p style={{ color: "#64748b", fontSize: "13px" }}>No servers registered. Add servers first.</p>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px" }}>
+            {servers.map(s => (
+              <div key={s.id} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                background: "#09111d", borderRadius: "8px", padding: "12px 16px",
+                border: "1px solid #1d3047",
+              }}>
+                <div>
+                  <div style={{ color: "#f1f5f9", fontWeight: 700, fontSize: "13px" }}>{s.name}</div>
+                  <div style={{ color: "#64748b", fontSize: "11px" }}>{s.ip_address}</div>
+                </div>
+                <button
+                  onClick={() => handleSecurityScan(s.id, s.name)}
+                  disabled={scanningServer === s.id}
+                  style={{
+                    padding: "6px 14px", borderRadius: "8px", fontSize: "11px", fontWeight: 700,
+                    cursor: "pointer", border: "1px solid rgba(248,113,113,0.3)",
+                    background: "rgba(248,113,113,0.1)", color: "#f87171",
+                  }}
+                >
+                  {scanningServer === s.id ? "Scanning..." : "🔍 Scan"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ML Predictions Table */}

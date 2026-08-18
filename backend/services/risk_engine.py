@@ -1,5 +1,12 @@
+"""
+Risk Scoring Engine
+Calculates risk scores using ML model when available, falls back to deterministic rules.
+Supports data source weighting: agent > ssh > whm > estimated.
+Applies data freshness penalty when metrics are stale.
+"""
 import os
 import pickle
+from datetime import datetime, timedelta
 
 import numpy as np
 
@@ -37,6 +44,16 @@ def _clamp_non_negative(value, default=0):
         return default
 
 
+# Data source confidence multipliers (higher = more trusted)
+SOURCE_CONFIDENCE = {
+    "agent": 1.0,
+    "ssh": 0.95,
+    "whm": 0.85,
+    "whm_estimated": 0.80,
+    "estimated": 0.70,
+}
+
+
 def _get_metrics(server):
     cpu = _clamp_percent(getattr(server, "cpu_usage", 0), 0)
     memory = _clamp_percent(getattr(server, "memory_usage", 0), 0)
@@ -47,12 +64,47 @@ def _get_metrics(server):
     return cpu, memory, disk, uptime, errors, source
 
 
+def _get_freshness_penalty(server) -> int:
+    """
+    Penalize risk score when data is stale.
+    - No penalty if last scan < 10 min ago
+    - +5 if 10-30 min
+    - +10 if 30-60 min
+    - +15 if > 1 hour
+    """
+    last_scan = getattr(server, "last_scanned_at", None)
+    agent_seen = getattr(server, "agent_last_seen", None)
+
+    # Use the most recent of the two timestamps
+    latest = None
+    if last_scan and agent_seen:
+        latest = max(last_scan, agent_seen)
+    elif last_scan:
+        latest = last_scan
+    elif agent_seen:
+        latest = agent_seen
+
+    if not latest:
+        return 10  # No data at all = moderate penalty
+
+    age = datetime.utcnow() - latest
+    if age < timedelta(minutes=10):
+        return 0
+    elif age < timedelta(minutes=30):
+        return 5
+    elif age < timedelta(hours=1):
+        return 10
+    else:
+        return 15
+
+
 def calculate_server_risk(server):
     """
     Risk scoring engine.
 
     Uses the trained model when available.
     Falls back to deterministic rule-based scoring.
+    Applies data source confidence weighting and freshness penalty.
 
     Score Range:
         0-30   = Healthy
@@ -60,6 +112,7 @@ def calculate_server_risk(server):
         61-100 = Critical
     """
     cpu, memory, disk, uptime, errors, source = _get_metrics(server)
+    confidence = SOURCE_CONFIDENCE.get(source, 0.70)
 
     if _model is not None:
         try:
@@ -67,8 +120,12 @@ def calculate_server_risk(server):
             score = int(_model.predict(features)[0])
             score = max(0, min(100, score))
 
-            if source != "ssh":
-                score = min(100, int(score * 0.9))
+            # Apply confidence scaling for non-agent sources
+            if confidence < 1.0:
+                score = min(100, int(score * confidence))
+
+            # Add freshness penalty
+            score = min(100, score + _get_freshness_penalty(server))
 
             return score
         except Exception:
@@ -109,18 +166,22 @@ def calculate_server_risk(server):
     elif uptime > 180:
         risk += 3
 
-    if source != "ssh":
+    # Apply confidence for non-agent/ssh sources
+    if confidence < 0.95:
         if cpu >= 85:
             risk -= 4
         if memory >= 85:
             risk -= 4
         risk = max(risk, disk)
 
+    # Freshness penalty
+    risk += _get_freshness_penalty(server)
+
     return max(0, min(100, risk))
 
 
 def get_data_source(server):
     value = getattr(server, "data_source", None)
-    if value in {"ssh", "whm_estimated", "estimated"}:
+    if value in {"agent", "ssh", "whm", "whm_estimated", "estimated"}:
         return value
     return "estimated"

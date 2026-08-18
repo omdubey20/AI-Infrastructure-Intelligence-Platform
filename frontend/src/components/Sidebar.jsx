@@ -5,9 +5,9 @@ const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: "📊" },
   { path: "/servers", label: "Servers", icon: "🖥️" },
   { path: "/projects", label: "Projects", icon: "📁" },
-  { path: "/monitoring", label: "Website Monitoring", icon: "📈" },
-  { path: "/security", label: "Security & Alerts", icon: "🛡️" },
   { path: "/duplicates", label: "Duplicates", icon: "👯" },
+  { path: "/monitoring", label: "Uptime Monitor", icon: "📡" },
+  { path: "/alerts", label: "Alerts", icon: "🔔" },
   { path: "/intelligence", label: "ML & AI Intel", icon: "⚡" },
 ];
 
@@ -57,7 +57,7 @@ function NavContent({ onClose }) {
         <button onClick={handleLogout} style={{ width: "100%", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)", color: "#f87171", borderRadius: "8px", padding: "10px 12px", fontSize: "13px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
           <span>⎋</span><span>Sign Out</span>
         </button>
-        <div style={{ textAlign: "center", marginTop: "10px", fontSize: "10px", color: "#475569", fontWeight: 600 }}>v2.0.0 · AI Infrastructure Platform</div>
+        <div style={{ textAlign: "center", marginTop: "10px", fontSize: "10px", color: "#475569", fontWeight: 600 }}>v3.0.0 · Enterprise Monitoring Platform</div>
       </div>
     </div>
   );

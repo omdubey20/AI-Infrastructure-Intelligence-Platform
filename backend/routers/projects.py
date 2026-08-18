@@ -9,7 +9,7 @@ import models
 from database import get_db
 from routers.auth import get_current_user, require_role
 from services.duplicate_detector import detect_duplicates
-from services.inactive_detector import detect_inactive_projects
+# inactive_detector removed — higher-ups don't need suspended/inactive projects
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -62,14 +62,10 @@ def get_projects(
 ):
     query = db.query(models.ProjectDiscovery).options(joinedload(models.ProjectDiscovery.server))
 
-    if filter_type == "suspended":
-        query = query.filter(models.ProjectDiscovery.is_inactive == True)
-    elif filter_type == "duplicates":
+    if filter_type == "duplicates":
         query = query.filter(models.ProjectDiscovery.is_duplicate == True)
-    elif filter_type == "inactive":
-        query = query.filter(models.ProjectDiscovery.is_inactive == True)
     elif filter_type == "live":
-        query = query.filter(models.ProjectDiscovery.is_live == True, models.ProjectDiscovery.is_inactive == False)
+        query = query.filter(models.ProjectDiscovery.is_live == True)
 
 
     if server_id:
@@ -115,22 +111,7 @@ def get_duplicate_projects(
     return [serialize_project(p) for p in duplicates]
 
 
-@router.get("/inactive")
-def get_inactive_projects(
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    inactives = db.query(models.ProjectDiscovery).filter(
-        models.ProjectDiscovery.is_inactive == True
-    ).options(joinedload(models.ProjectDiscovery.server)).all()
-
-    if not inactives:
-        discoveries = db.query(models.ProjectDiscovery).options(joinedload(models.ProjectDiscovery.server)).all()
-        detect_inactive_projects(discoveries)
-        db.commit()
-        inactives = [p for p in discoveries if p.is_inactive]
-
-    return [serialize_project(p) for p in inactives]
+# /inactive endpoint removed — higher-ups don't need it
 
 
 @router.get("/server/{server_id}")

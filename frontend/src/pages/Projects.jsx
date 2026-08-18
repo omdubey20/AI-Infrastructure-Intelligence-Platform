@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import api from "../api/axios";
 
-const FILTERS = ["all", "live"];
+const FILTERS = ["all", "live", "duplicates"];
 
 
 export default function Projects() {
@@ -50,39 +50,33 @@ export default function Projects() {
     const interval = setInterval(fetchProjects, 15000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, serverId, search]);
+  }, [filter, search, serverId]);
 
 
   const handleDelete = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to remove project "${name}" from discovery?`)) return;
+    if (!window.confirm(`Delete project '${name}'?`)) return;
     try {
       await api.delete(`/projects/${id}`);
-      setActionMsg({ ok: true, msg: `Project "${name}" removed.` });
+      setActionMsg({ ok: true, msg: `Project '${name}' deleted.` });
       fetchProjects();
-    } catch (err) {
-      setActionMsg({ ok: false, msg: `Failed to remove: ${err?.response?.data?.detail || err.message}` });
+    } catch (e) {
+      setActionMsg({ ok: false, msg: `Delete failed: ${e.response?.data?.detail || e.message}` });
     }
   };
 
-  const riskColor = (score) => {
-    if (!score && score !== 0) return "#94a3b8";
-    if (score >= 60) return "var(--red)";
-    if (score >= 30) return "var(--yellow)";
-    return "var(--green)";
-  };
+  const riskColor = (score) => (score >= 70 ? "#f87171" : score >= 40 ? "#fbbf24" : "#4ade80");
 
   return (
-    <div style={{ padding: "32px", maxWidth: "1400px", margin: "0 auto" }}>
+    <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh" }}>
       {/* Header */}
-      <div style={{ marginBottom: "28px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
-        <div>
-          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9", marginBottom: "6px" }}>
-            Live Projects Directory
-          </h1>
-          <p style={{ color: "#94a3b8", fontSize: "14px" }}>
-            All active web applications, PHP frameworks, and domain discoveries across connected servers ({totalCount} live projects)
-          </p>
-        </div>
+      <div style={{ marginBottom: "28px" }}>
+        <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 800, letterSpacing: "0.14em", marginBottom: "6px" }}>
+          INFRASTRUCTURE PROJECTS EXPLORER
+        </p>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Discovered Projects</h1>
+        <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
+          Showing {projects.length} of {totalCount} project(s) discovered across server fleet
+        </p>
       </div>
 
       {actionMsg && (
@@ -106,7 +100,7 @@ export default function Projects() {
                 color: filter === f ? "#080e1a" : "#94a3b8"
               }}
             >
-              {f === "live" ? "Active Live" : "All Live Projects"}
+              {f}
             </button>
           ))}
 
@@ -155,44 +149,36 @@ export default function Projects() {
                   <th>Framework</th>
                   <th>Domain</th>
                   <th>Path</th>
-                  <th>Status</th>
                   <th>DNS Status</th>
                   <th>Risk</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {projects.map((p) => {
-                  return (
-                    <tr key={p.id}>
-                      <td style={{ fontWeight: 800, color: "#f1f5f9" }}>{p.project_name || p.name}</td>
-                      <td style={{ color: "#94a3b8" }}>{p.server_name || `Server ${p.server_id}`}</td>
-                      <td>
-                        <span style={{ background: "rgba(56,189,248,0.12)", color: "#38bdf8", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase" }}>
-                          {p.framework || "unknown"}
-                        </span>
-                      </td>
-                      <td style={{ fontFamily: "monospace", color: "#38bdf8" }}>{p.domain || "-"}</td>
-                      <td style={{ fontFamily: "monospace", color: "#64748b", fontSize: "12px" }}>{p.project_path || "-"}</td>
-                      <td>
-                        <span className="badge badge-green">
-                          ● Active (Live)
-                        </span>
-                      </td>
-                      <td>
-                        <span className={p.dns_points_here ? "badge badge-green" : "badge badge-red"}>
-                          {p.dns_points_here ? "● Live DNS" : "● Dead DNS"}
-                        </span>
-                      </td>
-                      <td style={{ fontWeight: 800, color: riskColor(p.risk_score) }}>{p.risk_score ?? "-"}</td>
-                      <td>
-                        <button onClick={() => handleDelete(p.id, p.project_name || p.name)} className="btn-danger" style={{ padding: "4px 10px", fontSize: "11px" }}>
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {projects.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ fontWeight: 800, color: "#f1f5f9" }}>{p.project_name || p.name}</td>
+                    <td style={{ color: "#94a3b8" }}>{p.server_name || `Server ${p.server_id}`}</td>
+                    <td>
+                      <span style={{ background: "rgba(56,189,248,0.12)", color: "#38bdf8", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase" }}>
+                        {p.framework || "unknown"}
+                      </span>
+                    </td>
+                    <td style={{ fontFamily: "monospace", color: "#38bdf8" }}>{p.domain || "-"}</td>
+                    <td style={{ fontFamily: "monospace", color: "#64748b", fontSize: "12px" }}>{p.project_path || "-"}</td>
+                    <td>
+                      <span className={p.dns_points_here ? "badge badge-green" : "badge badge-red"}>
+                        {p.dns_points_here ? "● Live DNS" : "● Dead DNS"}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 800, color: riskColor(p.risk_score) }}>{p.risk_score ?? "-"}</td>
+                    <td>
+                      <button onClick={() => handleDelete(p.id, p.project_name || p.name)} className="btn-danger" style={{ padding: "4px 10px", fontSize: "11px" }}>
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

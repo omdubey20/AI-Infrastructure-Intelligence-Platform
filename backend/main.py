@@ -4,10 +4,13 @@ Main FastAPI Backend Server
 - Rate limiting (slowapi)
 - Strict CORS (no wildcard in production)
 - APScheduler with misfire guard
+- Uptime monitoring (60s checks)
+- Agent heartbeat monitoring
 """
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -17,13 +20,16 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from database import Base, engine, get_db
-from models import Server, ProjectDiscovery
+from models import Server, ProjectDiscovery, Alert
 from services.server_scanner import scan_server_projects
 from services.ai_insights_engine import generate_all_insights
 from services.duplicate_detector import detect_duplicates
-from services.inactive_detector import detect_inactive_projects
+from services.uptime_monitor import uptime_check_job
 
-from routers import stats, projects, servers, cleanup, discovery, whm, ml, ai, audit, dashboard_spec, monitoring, security, agent
+from routers import stats, projects, servers, discovery, whm, ml, ai, audit, dashboard_spec
+from routers import monitoring as monitoring_router
+from routers import alerts as alerts_router
+from routers import agent as agent_router
 from routers.auth import router as auth_router
 
 logging.basicConfig(level=logging.INFO)
@@ -65,61 +71,8 @@ def ensure_default_admin():
     finally:
         db.close()
 
-def run_schema_migrations():
-    """Safely auto-migrate PostgreSQL / SQLite schema to ensure all newly added columns exist."""
-    from sqlalchemy import text
-    migrations = [
-        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_token VARCHAR",
-        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_installed BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_version VARCHAR",
-        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_last_seen TIMESTAMP",
-        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS top_processes TEXT",
-        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS whm_accounts_count INTEGER DEFAULT 0",
-        "ALTER TABLE servers ADD COLUMN IF NOT EXISTS credentials_encrypted BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE project_discoveries ADD COLUMN IF NOT EXISTS http_status INTEGER",
-        "ALTER TABLE project_discoveries ADD COLUMN IF NOT EXISTS has_ssl BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE project_discoveries ADD COLUMN IF NOT EXISTS ssl_expiry_days INTEGER",
-        "CREATE INDEX IF NOT EXISTS ix_servers_agent_token ON servers (agent_token)",
-    ]
-    try:
-        with engine.begin() as conn:
-            for stmt in migrations:
-                try:
-                    conn.execute(text(stmt))
-                except Exception as migration_stmt_err:
-                    logger.debug(f"Schema migration statement notice ({stmt}): {migration_stmt_err}")
-
-            # Auto-cleanup any duplicate open alerts that may have accumulated
-            try:
-                conn.execute(text("""
-                    DELETE FROM security_alerts a USING security_alerts b
-                    WHERE a.id < b.id 
-                    AND a.target_name = b.target_name 
-                    AND a.category = b.category 
-                    AND a.is_resolved = FALSE 
-                    AND b.is_resolved = FALSE;
-                """))
-            except Exception:
-                pass
-
-            # Purge all pre-existing suspended/inactive projects completely from PostgreSQL
-            try:
-                conn.execute(text("DELETE FROM project_discoveries WHERE is_inactive = TRUE OR is_live = FALSE;"))
-            except Exception:
-                pass
-
-            # Ensure CPU usage on active servers is never 0%
-            try:
-                conn.execute(text("UPDATE servers SET cpu_usage = 14 WHERE (cpu_usage = 0 OR cpu_usage IS NULL) AND status = 'active';"))
-            except Exception:
-                pass
-        logger.info("Schema migrations verified successfully.")
-    except Exception as migration_err:
-        logger.warning(f"Schema migration general notice: {migration_err}")
-
 try:
     Base.metadata.create_all(bind=engine, checkfirst=True)
-    run_schema_migrations()
     ensure_default_admin()
 except Exception as db_init_err:
     logger.warning(f"Database initialization notice on startup: {db_init_err}")
@@ -135,28 +88,16 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 scheduler = BackgroundScheduler()
 
 
-from services.uptime_monitor import check_all_websites
-from services.security_scanner import run_full_security_audit
-
-
-def uptime_check_job():
-    """Periodic 24/7 website uptime & latency check (every 5 minutes)."""
-    db = next(get_db())
-    try:
-        check_all_websites(db)
-    except Exception as e:
-        logger.warning(f"APScheduler: Uptime check job notice: {e}")
-    finally:
-        db.close()
-
-
 def hourly_sync_job():
-    """Hourly background synchronization — rescans servers, audits security, detects duplicates, refreshes AI insights."""
-    logger.info("APScheduler: Running hourly synchronization & security audit...")
+    """Hourly background synchronization — rescans server metrics, detects duplicates, refreshes AI insights."""
+    logger.info("APScheduler: Running hourly synchronization job...")
     db = next(get_db())
     try:
         all_servers = db.query(Server).all()
         for server in all_servers:
+            # Skip agent-monitored servers (they report their own metrics)
+            if server.agent_installed and server.data_source == "agent":
+                continue
             try:
                 scan_server_projects(db, server, triggered_by="scheduler")
             except Exception as scan_err:
@@ -164,9 +105,7 @@ def hourly_sync_job():
 
         discoveries = db.query(ProjectDiscovery).all()
         detect_duplicates(discoveries)
-        detect_inactive_projects(discoveries)
         generate_all_insights(db)
-        run_full_security_audit(db)
         db.commit()
     except Exception as e:
         logger.error(f"APScheduler sync job error: {e}")
@@ -174,6 +113,61 @@ def hourly_sync_job():
     finally:
         db.close()
     logger.info("APScheduler: Hourly sync job completed.")
+
+
+def agent_heartbeat_check():
+    """Check if agents are still reporting. Flag servers as unreachable if no heartbeat in 3 minutes."""
+    db = next(get_db())
+    try:
+        cutoff = datetime.utcnow() - timedelta(minutes=3)
+        stale_servers = db.query(Server).filter(
+            Server.agent_installed == True,
+            Server.agent_last_seen < cutoff,
+            Server.status != "agent_offline",
+        ).all()
+
+        for server in stale_servers:
+            server.status = "agent_offline"
+            # Check if we already have an open alert
+            existing = db.query(Alert).filter(
+                Alert.server_id == server.id,
+                Alert.type == "agent_offline",
+                Alert.is_resolved == False,
+            ).first()
+            if not existing:
+                from services.notification_service import create_and_dispatch_alert
+                create_and_dispatch_alert(
+                    db,
+                    alert_type="agent_offline",
+                    severity="critical",
+                    message=f"Agent on {server.name} ({server.ip_address}) has stopped reporting. Last seen: {server.agent_last_seen}",
+                    server_id=server.id,
+                    server_name=server.name,
+                )
+
+        # Auto-resolve if agent came back
+        online_servers = db.query(Server).filter(
+            Server.agent_installed == True,
+            Server.agent_last_seen >= cutoff,
+        ).all()
+        for server in online_servers:
+            if server.status == "agent_offline":
+                server.status = "active"
+            open_alerts = db.query(Alert).filter(
+                Alert.server_id == server.id,
+                Alert.type == "agent_offline",
+                Alert.is_resolved == False,
+            ).all()
+            for a in open_alerts:
+                a.is_resolved = True
+                a.resolved_at = datetime.utcnow()
+
+        db.commit()
+    except Exception as e:
+        logger.error(f"Agent heartbeat check error: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 @asynccontextmanager
@@ -190,14 +184,23 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         uptime_check_job,
         "interval",
+        seconds=60,
+        id="uptime_checks",
+        misfire_grace_time=30,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        agent_heartbeat_check,
+        "interval",
         minutes=5,
-        id="uptime_check_5min",
+        id="agent_heartbeat",
         misfire_grace_time=60,
         max_instances=1,
         coalesce=True,
     )
     scheduler.start()
-    logger.info("APScheduler started — 24/7 Uptime (5min) and Server Sync (1hr) active.")
+    logger.info("APScheduler started — hourly sync, 60s uptime checks, 5min agent heartbeat active.")
     yield
     scheduler.shutdown()
     logger.info("APScheduler stopped.")
@@ -239,10 +242,6 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(servers.router)
 app.include_router(projects.router)
-app.include_router(monitoring.router)
-app.include_router(security.router)
-app.include_router(agent.router)
-app.include_router(cleanup.router)
 app.include_router(stats.router)
 app.include_router(discovery.router)
 app.include_router(whm.router)
@@ -250,6 +249,9 @@ app.include_router(ml.router)
 app.include_router(ai.router)
 app.include_router(audit.router)
 app.include_router(dashboard_spec.router)
+app.include_router(monitoring_router.router)
+app.include_router(alerts_router.router)
+app.include_router(agent_router.router)
 
 
 @app.get("/health")
@@ -289,7 +291,7 @@ if os.path.exists(static_build_dir):
         if not full_path:
             return {"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"}
         # Exclude API endpoints from SPA fallback
-        api_prefixes = ("auth", "servers", "projects", "cleanup", "stats", "discovery", "whm", "ml", "ai", "audit", "dashboard_spec", "health", "docs", "openapi.json")
+        api_prefixes = ("auth", "servers", "projects", "stats", "discovery", "whm", "ml", "ai", "audit", "dashboard_spec", "health", "docs", "openapi.json", "monitoring", "alerts", "agent")
         if any(full_path.startswith(prefix) for prefix in api_prefixes):
             raise HTTPException(status_code=404, detail="API endpoint not found")
         

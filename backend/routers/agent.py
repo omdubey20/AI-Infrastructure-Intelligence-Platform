@@ -1,455 +1,528 @@
 """
-24/7 Dedicated Server Agent Router (DataDog / 360Monitoring Style)
-- Dynamic 1-Line Bash Installer Generator
-- Pure Python 3 Lightweight Agent Script Distribution
-- High-Precision Telemetry Ingestion Endpoint
-- Server Agent Token Manager
+Agent Router — Receives telemetry from installed server agents
 """
-import secrets
-import json
 import logging
+import os
+import secrets
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Server
-from routers.auth import get_current_user, require_role
+from models import Server, HealthSnapshot, Alert
 from services.risk_engine import calculate_server_risk
-from services.alerting_service import notify_alert
+from services.notification_service import create_and_dispatch_alert
+from routers.auth import get_current_user, require_role
 
-logger = logging.getLogger("agent_router")
+logger = logging.getLogger(__name__)
 
-router = APIRouter(
-    prefix="/agent",
-    tags=["24/7 Dedicated Agent"]
-)
+router = APIRouter(prefix="/agent", tags=["Agent"])
+
+AGENT_SECRET = os.getenv("AGENT_SECRET_KEY", "infra-agent-default-key")
+
+# Alert thresholds
+DISK_WARN_THRESHOLD = 85
+DISK_CRIT_THRESHOLD = 92
+CPU_WARN_THRESHOLD = 85
+CPU_CRIT_THRESHOLD = 95
+MEM_WARN_THRESHOLD = 85
+MEM_CRIT_THRESHOLD = 95
 
 
-class AgentTelemetryPayload(BaseModel):
+class AgentReport(BaseModel):
+    api_key: str
+    cpu_usage: Optional[int] = None
+    memory_usage: Optional[int] = None
+    disk_usage: Optional[int] = None
+    load_avg_1: Optional[float] = None
+    load_avg_5: Optional[float] = None
+    load_avg_15: Optional[float] = None
+    uptime_days: Optional[int] = None
+    error_count: Optional[int] = None
+    ram_total_gb: Optional[float] = None
+    swap_usage: Optional[int] = None
+    cpu_cores: Optional[int] = None
+    cpu_model: Optional[str] = None
     hostname: Optional[str] = None
     os_name: Optional[str] = None
+    os_version: Optional[str] = None
     kernel: Optional[str] = None
-    cpu_usage: int
-    memory_usage: int
-    disk_usage: int
-    load_avg_1: float
-    load_avg_5: float
-    load_avg_15: float
-    uptime_days: int
-    error_count: Optional[int] = 0
-    cpanel_accounts_count: Optional[int] = None
-    top_processes: Optional[List[Dict[str, Any]]] = None
-    agent_version: Optional[str] = "3.0.0"
+    architecture: Optional[str] = None
+    open_ports: Optional[str] = None
+    running_services: Optional[str] = None
 
 
-AGENT_PYTHON_SCRIPT = '''#!/usr/bin/env python3
-"""
-Infra Intel 24/7 Lightweight Kernel Agent
-Zero external dependencies (Pure Python 3 standard library)
-RAM Footprint: < 5MB | CPU Footprint: < 0.1%
-"""
-import os
-import sys
-import time
+@router.post("/report")
+def receive_agent_report(report: AgentReport, db: Session = Depends(get_db)):
+    """Receive telemetry report from an installed agent."""
+    # Authenticate by API key
+    server = db.query(Server).filter(Server.agent_api_key == report.api_key).first()
+    if not server:
+        raise HTTPException(status_code=401, detail="Invalid agent API key")
+
+    now = datetime.utcnow()
+
+    # Update server with REAL agent metrics
+    if report.cpu_usage is not None:
+        server.cpu_usage = report.cpu_usage
+    if report.memory_usage is not None:
+        server.memory_usage = report.memory_usage
+    if report.disk_usage is not None:
+        server.disk_usage = report.disk_usage
+    if report.load_avg_1 is not None:
+        server.load_avg_1 = report.load_avg_1
+    if report.load_avg_5 is not None:
+        server.load_avg_5 = report.load_avg_5
+    if report.load_avg_15 is not None:
+        server.load_avg_15 = report.load_avg_15
+    if report.uptime_days is not None:
+        server.uptime_days = report.uptime_days
+    if report.error_count is not None:
+        server.error_count = report.error_count
+    if report.ram_total_gb is not None:
+        server.ram_total_gb = report.ram_total_gb
+    if report.swap_usage is not None:
+        server.swap_usage = report.swap_usage
+    if report.cpu_cores is not None:
+        server.cpu_cores = report.cpu_cores
+    if report.cpu_model is not None:
+        server.cpu_model = report.cpu_model
+    if report.hostname is not None:
+        server.hostname = report.hostname
+    if report.os_name is not None:
+        server.os_name = report.os_name
+    if report.os_version is not None:
+        server.os_version = report.os_version
+    if report.kernel is not None:
+        server.kernel = report.kernel
+    if report.architecture is not None:
+        server.architecture = report.architecture
+    if report.open_ports is not None:
+        server.open_ports = report.open_ports
+    if report.running_services is not None:
+        server.running_services = report.running_services
+
+    server.data_source = "agent"
+    server.agent_last_seen = now
+    server.agent_installed = True
+    server.status = "active"
+    server.last_scanned_at = now
+    server.scan_status = "success"
+    server.scan_error = None
+    server.risk_score = calculate_server_risk(server)
+
+    # Store health snapshots for time-series
+    metrics_to_record = {
+        "cpu_usage": report.cpu_usage,
+        "memory_usage": report.memory_usage,
+        "disk_usage": report.disk_usage,
+        "loadavg": report.load_avg_1,
+    }
+    for metric_name, value in metrics_to_record.items():
+        if value is not None:
+            snapshot = HealthSnapshot(
+                server_id=server.id,
+                metric=metric_name,
+                value=str(value),
+                recorded_at=now,
+            )
+            db.add(snapshot)
+
+    # Check alert thresholds and dispatch notifications
+    _check_threshold_alerts(db, server)
+
+    try:
+        db.commit()
+    except Exception as e:
+        logger.error(f"Agent report commit error: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to process report")
+
+    return {"status": "ok", "risk_score": server.risk_score}
+
+
+def _check_threshold_alerts(db: Session, server: Server):
+    """Check if any metric exceeds alert thresholds and create alerts."""
+    checks = [
+        ("disk_high", server.disk_usage, DISK_WARN_THRESHOLD, DISK_CRIT_THRESHOLD, "Disk usage"),
+        ("cpu_high", server.cpu_usage, CPU_WARN_THRESHOLD, CPU_CRIT_THRESHOLD, "CPU usage"),
+        ("memory_high", server.memory_usage, MEM_WARN_THRESHOLD, MEM_CRIT_THRESHOLD, "Memory usage"),
+    ]
+
+    for alert_type, value, warn_thresh, crit_thresh, label in checks:
+        if value is None:
+            continue
+
+        if value >= crit_thresh:
+            severity = "critical"
+        elif value >= warn_thresh:
+            severity = "warning"
+        else:
+            # Value is normal — auto-resolve open alerts
+            open_alerts = db.query(Alert).filter(
+                Alert.server_id == server.id,
+                Alert.type == alert_type,
+                Alert.is_resolved == False,
+            ).all()
+            for a in open_alerts:
+                a.is_resolved = True
+                a.resolved_at = datetime.utcnow()
+            continue
+
+        # Check if we already have an open alert
+        existing = db.query(Alert).filter(
+            Alert.server_id == server.id,
+            Alert.type == alert_type,
+            Alert.is_resolved == False,
+        ).first()
+
+        if not existing:
+            create_and_dispatch_alert(
+                db,
+                alert_type=alert_type,
+                severity=severity,
+                message=f"{label} on {server.name} is at {value}% ({severity}). Threshold: {warn_thresh}%",
+                server_id=server.id,
+                server_name=server.name,
+            )
+
+
+@router.post("/generate-key/{server_id}")
+def generate_agent_key(
+    server_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(["admin"]))
+):
+    """Generate a new API key for a server's agent."""
+    server = db.query(Server).filter(Server.id == server_id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    api_key = f"infra_{secrets.token_hex(24)}"
+    server.agent_api_key = api_key
+    db.commit()
+
+    return {"server_id": server_id, "api_key": api_key, "message": "Agent API key generated"}
+
+
+@router.get("/install.sh")
+def get_install_script(request: Request):
+    """Serve the agent installation script."""
+    base_url = str(request.base_url).rstrip("/")
+
+    script = f"""#!/bin/bash
+# AI Infrastructure Intelligence Platform — Agent Installer
+# Usage: curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key=YOUR_KEY
+
+set -e
+
+AGENT_DIR="/opt/infra-agent"
+API_URL="{base_url}"
+API_KEY=""
+
+# Parse args
+for arg in "$@"; do
+    case $arg in
+        --api-key=*) API_KEY="${{arg#*=}}" ;;
+        --url=*) API_URL="${{arg#*=}}" ;;
+    esac
+done
+
+if [ -z "$API_KEY" ]; then
+    echo "ERROR: --api-key is required"
+    echo "Usage: curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key=YOUR_KEY"
+    exit 1
+fi
+
+echo "🚀 Installing Infra Intel Agent..."
+echo "   API URL: $API_URL"
+echo "   Agent Dir: $AGENT_DIR"
+
+mkdir -p $AGENT_DIR
+
+cat > $AGENT_DIR/infra_agent.py << 'AGENT_EOF'
+#!/usr/bin/env python3
+\"\"\"
+Infra Intel Agent — Lightweight server monitoring agent.
+Reports real system metrics every 60 seconds via HTTPS POST.
+Zero external dependencies — uses only Python stdlib.
+\"\"\"
 import json
-import socket
+import os
+import re
 import ssl
 import subprocess
+import sys
+import time
 import urllib.request
 import urllib.error
 
-CONFIG_FILE = "/opt/infra-intel/config.json"
+CONFIG_FILE = "/opt/infra-agent/agent.conf"
 
-def read_config():
-    if not os.path.exists(CONFIG_FILE):
-        return None
+def load_config():
+    with open(CONFIG_FILE) as f:
+        return json.load(f)
+
+def get_cpu_usage():
     try:
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+        out = subprocess.check_output(["top", "-bn1"], timeout=5, stderr=subprocess.DEVNULL).decode()
+        for line in out.splitlines():
+            if "Cpu" in line or "%Cpu" in line:
+                parts = re.findall(r"[\\d.]+", line)
+                if len(parts) >= 4:
+                    idle = float(parts[3])
+                    return max(0, min(100, int(100 - idle)))
     except Exception:
-        return None
-
-def get_cpu_usage(interval=1):
+        pass
     try:
-        def read_stat():
-            with open("/proc/stat", "r") as f:
-                fields = [float(column) for column in f.readline().strip().split()[1:5]]
-            return fields[3], sum(fields) # idle, total
-
-        idle1, total1 = read_stat()
-        time.sleep(interval)
-        idle2, total2 = read_stat()
-        idle_delta = idle2 - idle1
-        total_delta = total2 - total1
-        if total_delta == 0:
-            return 0
-        return int((1.0 - (idle_delta / total_delta)) * 100)
+        with open("/proc/stat") as f:
+            line = f.readline()
+        vals = list(map(int, line.split()[1:]))
+        idle = vals[3]
+        total = sum(vals)
+        time.sleep(0.5)
+        with open("/proc/stat") as f:
+            line = f.readline()
+        vals2 = list(map(int, line.split()[1:]))
+        idle2 = vals2[3]
+        total2 = sum(vals2)
+        diff_idle = idle2 - idle
+        diff_total = total2 - total
+        if diff_total > 0:
+            return max(0, min(100, int((1 - diff_idle / diff_total) * 100)))
     except Exception:
-        return 5
+        pass
+    return 0
 
-def get_mem_usage():
+def get_memory_usage():
     try:
-        meminfo = {}
-        with open("/proc/meminfo", "r") as f:
+        with open("/proc/meminfo") as f:
+            info = {{}}
             for line in f:
                 parts = line.split(":")
                 if len(parts) == 2:
-                    meminfo[parts[0].strip()] = int(parts[1].strip().split()[0])
-        total = meminfo.get("MemTotal", 1)
-        free = meminfo.get("MemFree", 0) + meminfo.get("Buffers", 0) + meminfo.get("Cached", 0)
-        used = max(0, total - free)
-        return int((used / total) * 100)
+                    key = parts[0].strip()
+                    val = int(re.findall(r"\\d+", parts[1])[0])
+                    info[key] = val
+            total = info.get("MemTotal", 1)
+            available = info.get("MemAvailable", info.get("MemFree", 0))
+            used_pct = int((1 - available / total) * 100)
+            return max(0, min(100, used_pct)), round(total / 1048576, 1)
     except Exception:
-        return 10
+        return 0, 0
 
-def get_disk_usage(path="/"):
+def get_disk_usage():
     try:
-        st = os.statvfs(path)
-        total = st.f_blocks * st.f_frsize
-        free = st.f_bavail * st.f_frsize
-        used = total - free
-        return int((used / total) * 100)
+        out = subprocess.check_output(["df", "-h", "/"], timeout=5).decode()
+        for line in out.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 5:
+                pct = parts[4].replace("%", "")
+                return int(pct)
     except Exception:
-        return 20
+        return 0
 
 def get_load_avg():
     try:
-        load1, load5, load15 = os.getloadavg()
-        return round(load1, 2), round(load5, 2), round(load15, 2)
+        with open("/proc/loadavg") as f:
+            parts = f.read().split()
+            return float(parts[0]), float(parts[1]), float(parts[2])
     except Exception:
-        return 0.1, 0.1, 0.1
+        return 0.0, 0.0, 0.0
 
 def get_uptime_days():
     try:
-        with open("/proc/uptime", "r") as f:
-            uptime_seconds = float(f.readline().split()[0])
-        return int(uptime_seconds / 86400)
+        with open("/proc/uptime") as f:
+            secs = float(f.read().split()[0])
+            return int(secs / 86400)
     except Exception:
-        return 1
+        return 0
 
-def get_cpanel_accounts_count():
+def get_error_count():
     try:
-        cpanel_users_dir = "/var/cpanel/users"
-        if os.path.exists(cpanel_users_dir):
-            users = [u for u in os.listdir(cpanel_users_dir) if not u.startswith(".")]
-            return len(users)
+        out = subprocess.check_output(
+            ["journalctl", "--since", "24 hours ago", "-p", "err", "--no-pager", "-q"],
+            timeout=10, stderr=subprocess.DEVNULL
+        ).decode()
+        return len(out.strip().splitlines())
+    except Exception:
+        return 0
+
+def get_system_info():
+    info = {{}}
+    try:
+        info["hostname"] = subprocess.check_output(["hostname"], timeout=3).decode().strip()
     except Exception:
         pass
-    return None
-
-def get_top_processes():
     try:
-        cmd = ["ps", "-eo", "pid,user,%cpu,%mem,comm", "--sort=-%cpu"]
-        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, universal_newlines=True)
-        lines = out.strip().split("\\n")[1:6]
-        procs = []
-        for line in lines:
-            parts = line.split(None, 4)
-            if len(parts) >= 5:
-                procs.append({
-                    "pid": parts[0],
-                    "user": parts[1],
-                    "cpu": float(parts[2]),
-                    "mem": float(parts[3]),
-                    "command": parts[4]
-                })
-        return procs
+        info["kernel"] = subprocess.check_output(["uname", "-r"], timeout=3).decode().strip()
     except Exception:
-        return []
+        pass
+    try:
+        info["architecture"] = subprocess.check_output(["uname", "-m"], timeout=3).decode().strip()
+    except Exception:
+        pass
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    info["os_name"] = line.split("=", 1)[1].strip().strip('"')
+    except Exception:
+        pass
+    try:
+        info["cpu_cores"] = int(subprocess.check_output(["nproc"], timeout=3).decode().strip())
+    except Exception:
+        pass
+    try:
+        out = subprocess.check_output(["lscpu"], timeout=5).decode()
+        for line in out.splitlines():
+            if "Model name" in line:
+                info["cpu_model"] = line.split(":", 1)[1].strip()
+                break
+    except Exception:
+        pass
+    return info
 
-def collect_telemetry():
-    l1, l5, l15 = get_load_avg()
-    return {
-        "hostname": socket.gethostname(),
-        "os_name": "Linux (" + os.uname().sysname + ")",
-        "kernel": os.uname().release,
-        "cpu_usage": get_cpu_usage(interval=1),
-        "memory_usage": get_mem_usage(),
-        "disk_usage": get_disk_usage("/"),
-        "load_avg_1": l1,
-        "load_avg_5": l5,
-        "load_avg_15": l15,
-        "uptime_days": get_uptime_days(),
-        "cpanel_accounts_count": get_cpanel_accounts_count(),
-        "top_processes": get_top_processes(),
-        "agent_version": "3.0.0"
-    }
+def get_swap_usage():
+    try:
+        with open("/proc/meminfo") as f:
+            info = {{}}
+            for line in f:
+                parts = line.split(":")
+                if len(parts) == 2:
+                    key = parts[0].strip()
+                    val = int(re.findall(r"\\d+", parts[1])[0])
+                    info[key] = val
+            total = info.get("SwapTotal", 0)
+            free = info.get("SwapFree", 0)
+            if total > 0:
+                return int((1 - free / total) * 100)
+    except Exception:
+        pass
+    return 0
 
-def send_telemetry(config, telemetry):
-    api_url = config.get("api_url", "").rstrip("/") + "/agent/telemetry"
-    token = config.get("token", "")
-    data = json.dumps(telemetry).encode("utf-8")
+def send_report(config, data):
+    url = config["api_url"].rstrip("/") + "/agent/report"
+    payload = json.dumps(data).encode()
     req = urllib.request.Request(
-        api_url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-            "User-Agent": "InfraIntel-Agent/3.0.0"
-        }
+        url,
+        data=payload,
+        headers={{"Content-Type": "application/json", "User-Agent": "InfraIntelAgent/1.0"}},
+        method="POST",
     )
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-            return resp.status in (200, 201)
+        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+            return resp.status
+    except urllib.error.HTTPError as e:
+        print(f"HTTP Error: {{e.code}} — {{e.read().decode()[:200]}}")
+        return e.code
     except Exception as e:
-        print(f"[Agent] Ingestion error: {e}", file=sys.stderr)
-        return False
+        print(f"Send error: {{e}}")
+        return None
 
 def main():
-    print("⚡ Infra Intel 24/7 Agent Daemon started.")
+    config = load_config()
+    print(f"Infra Intel Agent started. Reporting to {{config['api_url']}} every 60s")
+
     while True:
-        cfg = read_config()
-        if not cfg or not cfg.get("token"):
-            print("[Agent] Missing token in config. Waiting...", file=sys.stderr)
-            time.sleep(30)
-            continue
         try:
-            telemetry = collect_telemetry()
-            ok = send_telemetry(cfg, telemetry)
-            if ok:
-                print(f"[Agent] Telemetry streamed successfully: CPU {telemetry['cpu_usage']}%, RAM {telemetry['memory_usage']}%, Disk {telemetry['disk_usage']}%")
+            mem_pct, ram_gb = get_memory_usage()
+            l1, l5, l15 = get_load_avg()
+            sys_info = get_system_info()
+
+            report = {{
+                "api_key": config["api_key"],
+                "cpu_usage": get_cpu_usage(),
+                "memory_usage": mem_pct,
+                "disk_usage": get_disk_usage(),
+                "load_avg_1": l1,
+                "load_avg_5": l5,
+                "load_avg_15": l15,
+                "uptime_days": get_uptime_days(),
+                "error_count": get_error_count(),
+                "ram_total_gb": ram_gb,
+                "swap_usage": get_swap_usage(),
+                **sys_info,
+            }}
+
+            status = send_report(config, report)
+            if status == 200:
+                print(f"[{{time.strftime('%H:%M:%S')}}] Report sent — CPU:{{report['cpu_usage']}}% MEM:{{report['memory_usage']}}% DISK:{{report['disk_usage']}}%")
+            else:
+                print(f"[{{time.strftime('%H:%M:%S')}}] Report failed — status={{status}}")
+
         except Exception as e:
-            print(f"[Agent] Loop error: {e}", file=sys.stderr)
+            print(f"Agent error: {{e}}")
+
         time.sleep(60)
 
 if __name__ == "__main__":
     main()
-'''
+AGENT_EOF
 
-
-@router.get("/install.sh", response_class=PlainTextResponse)
-def get_install_script(request: Request):
-    """
-    Returns the dynamic 1-line agent bash installer script.
-    Usage: curl -sSL https://<host>/agent/install.sh | bash -s -- --token=<TOKEN>
-    """
-    base_url = str(request.base_url).rstrip("/")
-    # Force HTTPS if behind proxy
-    if request.headers.get("x-forwarded-proto") == "https" and base_url.startswith("http://"):
-        base_url = base_url.replace("http://", "https://", 1)
-
-    bash_script = f"""#!/usr/bin/env bash
-# ==============================================================================
-# Infra Intel 24/7 Kernel Agent Installer (DataDog / 360Monitoring Style)
-# ==============================================================================
-set -e
-
-TOKEN=""
-API_URL="{base_url}"
-
-# Parse arguments
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --token=*) TOKEN="${{1#*=}}" ;;
-        --token) TOKEN="$2"; shift ;;
-        --api-url=*) API_URL="${{1#*=}}" ;;
-        *) echo "Unknown parameter passed: $1"; exit 1 ;;
-    esac
-    shift
-done
-
-if [ -z "$TOKEN" ]; then
-    echo "❌ Error: Missing --token parameter!"
-    echo "Usage: curl -sSL {base_url}/agent/install.sh | bash -s -- --token=YOUR_SERVER_TOKEN"
-    exit 1
-fi
-
-echo "================================================================="
-echo "⚡ Installing Infra Intel 24/7 Dedicated Monitoring Agent..."
-echo "================================================================="
-
-# 1. Create install directory
-mkdir -p /opt/infra-intel
-chmod 755 /opt/infra-intel
-
-# 2. Write agent config
-cat <<EOF > /opt/infra-intel/config.json
+# Write config
+cat > $AGENT_DIR/agent.conf << EOF
 {{
-  "token": "$TOKEN",
-  "api_url": "$API_URL"
+    "api_key": "$API_KEY",
+    "api_url": "$API_URL"
 }}
 EOF
-chmod 600 /opt/infra-intel/config.json
 
-# 3. Download agent python script
-echo "⬇️ Downloading lightweight agent script..."
-curl -sSL "$API_URL/agent/script.py" -o /opt/infra-intel/agent.py
-chmod 755 /opt/infra-intel/agent.py
+chmod +x $AGENT_DIR/infra_agent.py
 
-# 4. Setup Systemd Service
-if command -v systemctl >/dev/null 2>&1; then
-    echo "⚙️ Configuring systemd daemon service..."
-    cat <<EOF > /etc/systemd/system/infra-intel-agent.service
+# Create systemd service
+cat > /etc/systemd/system/infra-agent.service << EOF
 [Unit]
-Description=Infra Intel 24/7 Dedicated Server Monitoring Agent
+Description=Infra Intel Monitoring Agent
 After=network.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/infra-intel
-ExecStart=/usr/bin/env python3 /opt/infra-intel/agent.py
+ExecStart=/usr/bin/python3 $AGENT_DIR/infra_agent.py
 Restart=always
 RestartSec=10
-MemoryMax=32M
-CPUQuota=5%
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
-    systemctl enable infra-intel-agent.service
-    systemctl restart infra-intel-agent.service
-    echo "✅ Systemd service 'infra-intel-agent' active and running."
-else
-    echo "⚙️ Systemd not found. Setting up crontab runner..."
-    (crontab -l 2>/dev/null | grep -v 'infra-intel'; echo "* * * * * pgrep -f /opt/infra-intel/agent.py >/dev/null || /usr/bin/env python3 /opt/infra-intel/agent.py >/dev/null 2>&1 &") | crontab -
-    nohup /usr/bin/env python3 /opt/infra-intel/agent.py >/dev/null 2>&1 &
-    echo "✅ Background daemon started via crontab."
-fi
+systemctl daemon-reload
+systemctl enable infra-agent
+systemctl start infra-agent
 
 echo ""
-echo "================================================================="
-echo "🎉 SUCCESS: Infra Intel 24/7 Agent Installed Successfully!"
-echo "📡 Real-time kernel telemetry is now streaming to your dashboard."
-echo "================================================================="
+echo "✅ Infra Intel Agent installed and running!"
+echo "   Service: systemctl status infra-agent"
+echo "   Logs: journalctl -u infra-agent -f"
+echo "   Config: $AGENT_DIR/agent.conf"
 """
-    return Response(content=bash_script, media_type="text/plain")
+    return PlainTextResponse(content=script, media_type="text/plain")
 
 
-@router.get("/script.py", response_class=PlainTextResponse)
-def get_agent_script():
-    """Returns the pure Python 3 agent script."""
-    return Response(content=AGENT_PYTHON_SCRIPT, media_type="text/x-python")
-
-
-@router.post("/telemetry")
-def ingest_agent_telemetry(
-    payload: AgentTelemetryPayload,
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    """
-    High-frequency telemetry ingestion endpoint called by the server agent.
-    Authenticated via Server Agent Token in Authorization Header (Bearer <TOKEN>).
-    """
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid agent token header")
-
-    token = auth_header.split(" ", 1)[1].strip()
-    server = db.query(Server).filter(Server.agent_token == token).first()
-    if not server:
-        raise HTTPException(status_code=403, detail="Invalid server agent token")
-
-    now = datetime.utcnow()
-
-    # Update server telemetry
-    server.cpu_usage = payload.cpu_usage
-    server.memory_usage = payload.memory_usage
-    server.disk_usage = payload.disk_usage
-    server.load_avg_1 = payload.load_avg_1
-    server.load_avg_5 = payload.load_avg_5
-    server.load_avg_15 = payload.load_avg_15
-    server.uptime_days = payload.uptime_days
-    server.agent_installed = True
-    server.agent_version = payload.agent_version
-    server.agent_last_seen = now
-    server.last_scanned_at = now
-    server.data_source = "agent"
-    server.status = "active"
-    server.scan_status = "success"
-    server.scan_error = None
-
-    if payload.hostname and not server.hostname:
-        server.hostname = payload.hostname
-    if payload.os_name and not server.os_name:
-        server.os_name = payload.os_name
-    if payload.kernel and not server.kernel:
-        server.kernel = payload.kernel
-    if payload.cpanel_accounts_count is not None:
-        server.whm_accounts_count = payload.cpanel_accounts_count
-    if payload.top_processes:
-        server.top_processes = json.dumps(payload.top_processes)
-
-    # Recalculate AI / ML Risk Score
-    server.risk_score = calculate_server_risk(server)
-
-    # Trigger Automated Security Alerts on High Saturation
-    if server.disk_usage >= 90:
-        notify_alert(
-            db,
-            category="DISK_FULL",
-            target_name=server.name,
-            title=f"Critical Disk Saturation: {server.name} ({server.disk_usage}%)",
-            description=f"Agent report: Server '{server.name}' disk usage reached {server.disk_usage}%. Immediate action required.",
-            severity="CRITICAL",
-            target_type="server",
-            target_id=server.id,
-            recommendation="Expand root partition or clean up /var/log and archived accounts.",
-        )
-    elif server.disk_usage >= 85:
-        notify_alert(
-            db,
-            category="DISK_FULL",
-            target_name=server.name,
-            title=f"High Disk Usage Warning: {server.name} ({server.disk_usage}%)",
-            description=f"Agent report: Server '{server.name}' disk usage is at {server.disk_usage}%.",
-            severity="WARNING",
-            target_type="server",
-            target_id=server.id,
-        )
-
-    db.commit()
-
-    return {
-        "status": "success",
-        "server_id": server.id,
-        "server_name": server.name,
-        "risk_score": server.risk_score,
-        "received_at": now.isoformat()
-    }
-
-
-@router.get("/token/{server_id}")
-def get_or_create_server_agent_token(
-    server_id: int,
-    request: Request,
+@router.get("/status")
+def get_agent_status(
     db: Session = Depends(get_db),
-    current_user = Depends(require_role(["admin", "devops"]))
+    current_user=Depends(get_current_user)
 ):
-    """
-    Get or generate a unique agent token and copyable 1-line installation command for a server.
-    """
-    server = db.query(Server).filter(Server.id == server_id).first()
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
-
-    if not server.agent_token:
-        server.agent_token = secrets.token_hex(20)
-        db.commit()
-        db.refresh(server)
-
-    base_url = str(request.base_url).rstrip("/")
-    if request.headers.get("x-forwarded-proto") == "https" and base_url.startswith("http://"):
-        base_url = base_url.replace("http://", "https://", 1)
-
-    install_cmd = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --token={server.agent_token}"
-
-    return {
-        "server_id": server.id,
-        "server_name": server.name,
-        "agent_token": server.agent_token,
-        "agent_installed": bool(server.agent_installed),
-        "agent_version": server.agent_version,
-        "agent_last_seen": server.agent_last_seen.isoformat() if server.agent_last_seen else None,
-        "install_command": install_cmd
-    }
+    """Get agent installation status for all servers."""
+    servers = db.query(Server).all()
+    return [
+        {
+            "server_id": s.id,
+            "server_name": s.name,
+            "agent_installed": s.agent_installed or False,
+            "agent_last_seen": s.agent_last_seen.isoformat() if s.agent_last_seen else None,
+            "data_source": s.data_source,
+            "has_api_key": bool(s.agent_api_key),
+        }
+        for s in servers
+    ]

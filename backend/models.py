@@ -106,18 +106,16 @@ class Server(Base):
     credentials_encrypted = Column(Boolean, default=False)
 
     # --- Scan State ---
-    data_source = Column(String, default="estimated")  # ssh, whm_estimated, estimated
+    data_source = Column(String, default="estimated")  # agent, ssh, whm, estimated
     last_scanned_at = Column(DateTime, nullable=True)
     last_full_scan_at = Column(DateTime, nullable=True)
     scan_status = Column(String, default="never_scanned")  # scanning, success, error, never_scanned
     scan_error = Column(Text, nullable=True)
 
-    # --- 24/7 Agent (DataDog / 360Monitoring Style) ---
-    agent_token = Column(String, unique=True, index=True, nullable=True)
+    # --- Agent ---
+    agent_api_key = Column(String, nullable=True, unique=True)
     agent_installed = Column(Boolean, default=False)
-    agent_version = Column(String, nullable=True)
     agent_last_seen = Column(DateTime, nullable=True)
-    top_processes = Column(Text, nullable=True)     # JSON: top CPU/RAM processes
 
     # --- AI ---
     ai_risk_confidence = Column(Float, default=0.0)
@@ -219,77 +217,24 @@ class ProjectDiscovery(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_user", "user_id"),
+        Index("ix_audit_action", "action"),
+        Index("ix_audit_created", "created_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    action = Column(String, nullable=False)        # create_server, scan_server, update_credentials, etc.
-    entity_type = Column(String, nullable=True)   # server, project, user
+    action = Column(String, nullable=False)          # scan, cleanup, login, create_server, delete_project, etc.
+    entity_type = Column(String, nullable=True)      # server, project, discovery
     entity_id = Column(Integer, nullable=True)
     entity_name = Column(String, nullable=True)
-    details = Column(Text, nullable=True)          # JSON context
+    details = Column(Text, nullable=True)            # JSON details
     ip_address = Column(String, nullable=True)
+    status = Column(String, default="success")       # success, error
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="audit_logs")
-
-
-class WebsiteUptimeCheck(Base):
-    """24/7 Website & Domain Uptime monitoring history (DataDog / 360Monitoring style)"""
-    __tablename__ = "website_uptime_checks"
-    __table_args__ = (
-        Index("ix_wuc_domain", "domain"),
-        Index("ix_wuc_checked_at", "checked_at"),
-    )
-
-    id = Column(Integer, primary_key=True, index=True)
-    discovery_id = Column(Integer, ForeignKey("project_discoveries.id", ondelete="CASCADE"), nullable=True)
-    domain = Column(String, nullable=False, index=True)
-    url = Column(String, nullable=False)
-    http_status = Column(Integer, nullable=True)
-    response_time_ms = Column(Integer, default=0)
-    is_up = Column(Boolean, default=True)
-    ssl_valid = Column(Boolean, default=True)
-    ssl_days_remaining = Column(Integer, nullable=True)
-    error_message = Column(Text, nullable=True)
-    checked_at = Column(DateTime, default=datetime.utcnow)
-
-
-class SecurityAlert(Base):
-    """Malware, disk threshold, and security vulnerability alert records"""
-    __tablename__ = "security_alerts"
-    __table_args__ = (
-        Index("ix_sa_severity", "severity"),
-        Index("ix_sa_is_resolved", "is_resolved"),
-    )
-
-    id = Column(Integer, primary_key=True, index=True)
-    target_type = Column(String, default="server")  # server, project
-    target_id = Column(Integer, nullable=True)
-    target_name = Column(String, nullable=False)
-    severity = Column(String, default="WARNING")    # CRITICAL, WARNING, INFO
-    category = Column(String, nullable=False)       # DISK_FULL, MALWARE, EXPOSED_ENV, SSL_EXPIRING, PORT_RISK, WEBSITE_DOWN
-    title = Column(String, nullable=False)
-    description = Column(Text, nullable=True)
-    recommendation = Column(Text, nullable=True)
-    is_resolved = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    resolved_at = Column(DateTime, nullable=True)
-
-
-class AlertConfig(Base):
-    """Alert channels configuration (Microsoft Teams Webhook & Email notifications)"""
-    __tablename__ = "alert_configs"
-
-    id = Column(Integer, primary_key=True, index=True)
-    teams_webhook_url = Column(String, nullable=True)
-    teams_enabled = Column(Boolean, default=False)
-    email_recipients = Column(String, nullable=True)  # comma-separated emails
-    email_enabled = Column(Boolean, default=False)
-    alert_on_disk_full = Column(Boolean, default=True)
-    alert_on_website_down = Column(Boolean, default=True)
-    alert_on_malware = Column(Boolean, default=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
 
 
 class ScanJob(Base):
@@ -383,11 +328,59 @@ class Alert(Base):
     id = Column(Integer, primary_key=True, index=True)
     server_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
     site_id = Column(Integer, ForeignKey("project_discoveries.id"), nullable=True)
-    type = Column(String(50), nullable=False)     # suspended, site_down, disk_high, ssl_expiring, service_down
+    type = Column(String(50), nullable=False)     # site_down, disk_high, cpu_high, memory_high, ssl_expiring, malware, agent_offline
     severity = Column(String(20), default="warning") # info, warning, critical
     message = Column(String(500), nullable=False)
     is_resolved = Column(Boolean, default=False)
+    notification_sent = Column(Boolean, default=False)
+    teams_sent_at = Column(DateTime, nullable=True)
+    email_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    resolved_at = Column(DateTime, nullable=True)
+
+    server = relationship("Server")
+    site = relationship("ProjectDiscovery")
+
+
+class UptimeCheck(Base):
+    __tablename__ = "uptime_checks"
+    __table_args__ = (
+        Index("ix_uc_site", "site_id"),
+        Index("ix_uc_checked", "checked_at"),
+    )
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    site_id = Column(Integer, ForeignKey("project_discoveries.id"), nullable=True)
+    server_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
+    url = Column(String(500), nullable=False)
+    is_up = Column(Boolean, default=True)
+    http_status = Column(Integer, nullable=True)
+    response_time_ms = Column(Integer, nullable=True)
+    error_message = Column(String(500), nullable=True)
+    ssl_valid = Column(Boolean, nullable=True)
+    ssl_expiry_days = Column(Integer, nullable=True)
+    checked_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    site = relationship("ProjectDiscovery")
+    server = relationship("Server")
+
+
+class MalwareAlert(Base):
+    __tablename__ = "malware_alerts"
+    __table_args__ = (
+        Index("ix_mal_server", "server_id"),
+        Index("ix_mal_resolved", "is_resolved"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    server_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
+    site_id = Column(Integer, ForeignKey("project_discoveries.id"), nullable=True)
+    file_path = Column(String(500), nullable=True)
+    threat_type = Column(String(100), nullable=False)  # php_shell, base64_injection, suspicious_cron, suid_binary, clamav_hit
+    severity = Column(String(20), default="critical")
+    details = Column(Text, nullable=True)
+    is_resolved = Column(Boolean, default=False)
+    detected_at = Column(DateTime, default=datetime.utcnow, index=True)
     resolved_at = Column(DateTime, nullable=True)
 
     server = relationship("Server")

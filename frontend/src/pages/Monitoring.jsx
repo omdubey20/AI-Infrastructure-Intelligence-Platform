@@ -1,328 +1,180 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import api from "../api/axios";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 export default function Monitoring() {
-  const [overview, setOverview] = useState({
-    total_websites: 0,
-    up_count: 0,
-    down_count: 0,
-    uptime_percentage: 100.0,
-    average_latency_ms: 45,
-    ssl_expiring_soon: 0,
-  });
-  const [websites, setWebsites] = useState([]);
+  const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [checking, setChecking] = useState(false);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all"); // all, up, down, ssl_expiring
-  const [lastCheckTime, setLastCheckTime] = useState(null);
-  const [pingingId, setPingingId] = useState(null);
+  const [selectedSite, setSelectedSite] = useState(null);
+  const [history, setHistory] = useState([]);
 
-  const fetchMonitoringData = async (isInitial = false) => {
+  const fetchStatus = async () => {
     try {
-      if (isInitial) setLoading(true);
-      const [ovRes, webRes] = await Promise.all([
-        api.get("/monitoring/overview"),
-        api.get("/monitoring/websites"),
-      ]);
-      setOverview(ovRes.data);
-      setWebsites(webRes.data);
-      setLastCheckTime(new Date().toLocaleTimeString());
-    } catch (err) {
-      console.error("Failed to load monitoring data:", err);
+      const res = await api.get("/monitoring/status");
+      setSites(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error("Monitoring fetch error:", e);
     } finally {
-      if (isInitial) setLoading(false);
+      setLoading(false);
+    }
+  };
+
+  const fetchHistory = async (siteId) => {
+    try {
+      const res = await api.get(`/monitoring/history/${siteId}?hours=24`);
+      setHistory(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error("History fetch error:", e);
     }
   };
 
   useEffect(() => {
-    fetchMonitoringData(true);
-    const timer = setInterval(() => fetchMonitoringData(false), 30000); // 30s auto-refresh
-    return () => clearInterval(timer);
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 15000);
+    return () => clearInterval(interval);
   }, []);
 
-  const handleCheckAll = async () => {
-    try {
-      setChecking(true);
-      await api.post("/monitoring/check-now");
-      await fetchMonitoringData();
-    } catch (err) {
-      console.error("Error triggering live check:", err);
-    } finally {
-      setChecking(false);
-    }
+  const handleSelectSite = (site) => {
+    setSelectedSite(site);
+    fetchHistory(site.id);
   };
 
-  const handlePingSingle = async (id) => {
-    try {
-      setPingingId(id);
-      await api.post(`/monitoring/check/${id}`);
-      await fetchMonitoringData();
-    } catch (err) {
-      console.error("Error pinging site:", err);
-    } finally {
-      setPingingId(null);
-    }
-  };
-
-  const filteredWebsites = websites.filter((site) => {
-    const matchesSearch =
-      site.domain.toLowerCase().includes(search.toLowerCase()) ||
-      site.project_name.toLowerCase().includes(search.toLowerCase());
-    if (!matchesSearch) return false;
-    if (filter === "up") return site.is_up;
-    if (filter === "down") return !site.is_up;
-    if (filter === "ssl_expiring") return site.ssl_expiry_days !== null && site.ssl_expiry_days <= 14;
-    return true;
-  });
+  const upCount = sites.filter(s => s.is_up === true).length;
+  const downCount = sites.filter(s => s.is_up === false).length;
+  const unknownCount = sites.filter(s => s.is_up === null).length;
 
   return (
-    <div style={{ padding: "32px", maxWidth: "1400px", margin: "0 auto", color: "#f1f5f9" }}>
+    <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh" }}>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px", flexWrap: "wrap", gap: "16px" }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
-            <span style={{ fontSize: "24px" }}>📈</span>
-            <h1 style={{ fontSize: "24px", fontWeight: 800, margin: 0, letterSpacing: "-0.02em" }}>
-              24/7 Website Uptime & Latency Sentinel
-            </h1>
-          </div>
-          <p style={{ color: "#94a3b8", fontSize: "14px", margin: 0 }}>
-            Real-time HTTP/HTTPS latency response, HTTP status codes, and SSL certificate watchdog (DataDog / 360Monitoring standard)
+      <div style={{ marginBottom: "28px" }}>
+        <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 800, letterSpacing: "0.14em", marginBottom: "6px" }}>
+          WEBSITE UPTIME MONITORING
+        </p>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Uptime Monitor</h1>
+        <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
+          Real-time HTTP health checks every 60 seconds across all discovered project domains
+        </p>
+      </div>
+
+      {/* Summary Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "16px", marginBottom: "28px" }}>
+        <div className="card" style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>MONITORED</p>
+          <p style={{ fontSize: "28px", fontWeight: 800, color: "#38bdf8" }}>{sites.length}</p>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>UP</p>
+          <p style={{ fontSize: "28px", fontWeight: 800, color: "#4ade80" }}>{upCount}</p>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>DOWN</p>
+          <p style={{ fontSize: "28px", fontWeight: 800, color: "#f87171" }}>{downCount}</p>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>PENDING</p>
+          <p style={{ fontSize: "28px", fontWeight: 800, color: "#94a3b8" }}>{unknownCount}</p>
+        </div>
+      </div>
+
+      {/* Sites Grid */}
+      {loading ? (
+        <div style={{ color: "#94a3b8" }}>Loading monitoring data...</div>
+      ) : sites.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "48px" }}>
+          <p style={{ fontSize: "16px", fontWeight: 700, color: "#94a3b8" }}>📡 No monitored sites yet</p>
+          <p style={{ fontSize: "13px", color: "#64748b", marginTop: "8px" }}>
+            Scan your servers first to discover projects. All live project domains will be automatically monitored.
           </p>
         </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "16px", marginBottom: "28px" }}>
+          {sites.map((site) => {
+            const isUp = site.is_up;
+            const statusColor = isUp === true ? "#4ade80" : isUp === false ? "#f87171" : "#94a3b8";
+            const statusLabel = isUp === true ? "UP" : isUp === false ? "DOWN" : "PENDING";
+            const bgColor = isUp === false ? "rgba(248,113,113,0.06)" : "transparent";
 
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          {lastCheckTime && (
-            <span style={{ fontSize: "12px", color: "#64748b" }}>
-              Last sync: <strong style={{ color: "#94a3b8" }}>{lastCheckTime}</strong>
-            </span>
-          )}
-          <button
-            onClick={handleCheckAll}
-            disabled={checking}
-            style={{
-              background: "linear-gradient(135deg, #0284c7, #2563eb)",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              padding: "10px 18px",
-              fontSize: "13px",
-              fontWeight: 700,
-              cursor: checking ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              boxShadow: "0 0 16px rgba(2,132,199,0.3)",
-              opacity: checking ? 0.7 : 1,
-            }}
-          >
-            <span>{checking ? "⏳" : "⚡"}</span>
-            <span>{checking ? "Pinging All Sites..." : "Run Live Ping All"}</span>
-          </button>
-        </div>
-      </div>
+            return (
+              <div
+                key={site.id}
+                className="card"
+                onClick={() => handleSelectSite(site)}
+                style={{
+                  cursor: "pointer", background: bgColor,
+                  borderLeft: `3px solid ${statusColor}`,
+                  transition: "all 0.2s ease",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <span style={{ fontWeight: 800, color: "#f1f5f9", fontSize: "14px" }}>{site.domain}</span>
+                  <span style={{
+                    background: `${statusColor}22`, color: statusColor,
+                    padding: "3px 10px", borderRadius: "12px", fontSize: "11px", fontWeight: 800,
+                  }}>
+                    ● {statusLabel}
+                  </span>
+                </div>
 
-      {/* Summary KPI Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "16px", marginBottom: "28px" }}>
-        {/* Global Uptime */}
-        <div style={{ background: "#111c2e", border: "1px solid #1d3047", borderRadius: "12px", padding: "20px" }}>
-          <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 700, letterSpacing: "0.05em", marginBottom: "8px" }}>GLOBAL UPTIME</div>
-          <div style={{ fontSize: "28px", fontWeight: 800, color: overview.uptime_percentage >= 99 ? "#4ade80" : "#f87171" }}>
-            {overview.uptime_percentage}%
-          </div>
-          <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "4px" }}>Across all live domains</div>
-        </div>
-
-        {/* Avg Latency */}
-        <div style={{ background: "#111c2e", border: "1px solid #1d3047", borderRadius: "12px", padding: "20px" }}>
-          <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 700, letterSpacing: "0.05em", marginBottom: "8px" }}>AVG RESPONSE TIME</div>
-          <div style={{ fontSize: "28px", fontWeight: 800, color: "#38bdf8" }}>
-            {overview.average_latency_ms} <span style={{ fontSize: "16px", fontWeight: 500 }}>ms</span>
-          </div>
-          <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "4px" }}>Global p50 latency</div>
-        </div>
-
-        {/* Online Sites */}
-        <div style={{ background: "#111c2e", border: "1px solid #1d3047", borderRadius: "12px", padding: "20px" }}>
-          <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 700, letterSpacing: "0.05em", marginBottom: "8px" }}>WEBSITES OPERATIONAL</div>
-          <div style={{ fontSize: "28px", fontWeight: 800, color: "#4ade80" }}>
-            {overview.up_count} <span style={{ fontSize: "16px", color: "#64748b", fontWeight: 500 }}>/ {overview.total_websites}</span>
-          </div>
-          <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "4px" }}>Responding 200 OK</div>
-        </div>
-
-        {/* Offline Sites */}
-        <div style={{ background: "#111c2e", border: "1px solid #1d3047", borderRadius: "12px", padding: "20px" }}>
-          <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 700, letterSpacing: "0.05em", marginBottom: "8px" }}>OUTAGES / DOWN</div>
-          <div style={{ fontSize: "28px", fontWeight: 800, color: overview.down_count > 0 ? "#f87171" : "#4ade80" }}>
-            {overview.down_count}
-          </div>
-          <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "4px" }}>
-            {overview.down_count > 0 ? "Requires attention" : "Zero outages detected"}
-          </div>
-        </div>
-
-        {/* SSL Alerts */}
-        <div style={{ background: "#111c2e", border: "1px solid #1d3047", borderRadius: "12px", padding: "20px" }}>
-          <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 700, letterSpacing: "0.05em", marginBottom: "8px" }}>SSL EXPIRING SOON</div>
-          <div style={{ fontSize: "28px", fontWeight: 800, color: overview.ssl_expiring_soon > 0 ? "#fbbf24" : "#94a3b8" }}>
-            {overview.ssl_expiring_soon}
-          </div>
-          <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "4px" }}>Expiring within 14 days</div>
-        </div>
-      </div>
-
-      {/* Filter & Search Bar */}
-      <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          {[
-            { key: "all", label: "All Websites" },
-            { key: "up", label: "🟢 Online" },
-            { key: "down", label: "🔴 Offline" },
-            { key: "ssl_expiring", label: "🔒 SSL Warning" },
-          ].map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setFilter(key)}
-              style={{
-                background: filter === key ? "rgba(56,189,248,0.15)" : "#111c2e",
-                border: `1px solid ${filter === key ? "#38bdf8" : "#1d3047"}`,
-                color: filter === key ? "#38bdf8" : "#94a3b8",
-                padding: "8px 14px",
-                borderRadius: "8px",
-                fontSize: "13px",
-                fontWeight: filter === key ? 700 : 500,
-                cursor: "pointer",
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <input
-          type="text"
-          placeholder="Search domain or project..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            background: "#111c2e",
-            border: "1px solid #1d3047",
-            borderRadius: "8px",
-            padding: "8px 14px",
-            color: "white",
-            fontSize: "13px",
-            minWidth: "260px",
-          }}
-        />
-      </div>
-
-      {/* Websites Table */}
-      <div style={{ background: "#111c2e", border: "1px solid #1d3047", borderRadius: "12px", overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
-          <thead>
-            <tr style={{ background: "#0d1524", borderBottom: "1px solid #1d3047", color: "#64748b", textTransform: "uppercase", fontSize: "11px", letterSpacing: "0.05em" }}>
-              <th style={{ padding: "14px 20px" }}>Website / Domain</th>
-              <th style={{ padding: "14px 16px" }}>Status</th>
-              <th style={{ padding: "14px 16px" }}>Latency</th>
-              <th style={{ padding: "14px 16px" }}>HTTP Code</th>
-              <th style={{ padding: "14px 16px" }}>SSL Expiry</th>
-              <th style={{ padding: "14px 16px" }}>Server Node</th>
-              <th style={{ padding: "14px 20px", textAlign: "right" }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={7} style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
-                  Loading real-time monitoring telemetry...
-                </td>
-              </tr>
-            ) : filteredWebsites.length === 0 ? (
-              <tr>
-                <td colSpan={7} style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
-                  No websites matching the active filter.
-                </td>
-              </tr>
-            ) : (
-              filteredWebsites.map((site) => (
-                <tr key={site.id} style={{ borderBottom: "1px solid #162438", transition: "background 0.15s" }}>
-                  <td style={{ padding: "14px 20px" }}>
-                    <div style={{ fontWeight: 700, color: "#f1f5f9" }}>{site.domain}</div>
-                    <div style={{ fontSize: "11px", color: "#64748b" }}>{site.project_name} · {site.framework || "web"}</div>
-                  </td>
-
-                  <td style={{ padding: "14px 16px" }}>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        padding: "3px 8px",
-                        borderRadius: "12px",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        background: site.is_up ? "rgba(74,222,128,0.12)" : "rgba(248,113,113,0.12)",
-                        color: site.is_up ? "#4ade80" : "#f87171",
-                        border: `1px solid ${site.is_up ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)"}`,
-                      }}
-                    >
-                      <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: site.is_up ? "#4ade80" : "#f87171" }} />
-                      {site.is_up ? "ONLINE" : "OFFLINE"}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "12px" }}>
+                  <div>
+                    <span style={{ color: "#64748b" }}>Response: </span>
+                    <span style={{ color: "#f1f5f9", fontWeight: 700 }}>
+                      {site.response_time_ms ? `${site.response_time_ms}ms` : "-"}
                     </span>
-                  </td>
-
-                  <td style={{ padding: "14px 16px" }}>
-                    <span style={{ fontWeight: 700, color: site.response_time_ms < 200 ? "#4ade80" : (site.response_time_ms < 500 ? "#fbbf24" : "#f87171") }}>
-                      {site.response_time_ms || 45} ms
+                  </div>
+                  <div>
+                    <span style={{ color: "#64748b" }}>Uptime 24h: </span>
+                    <span style={{ color: site.uptime_24h >= 99 ? "#4ade80" : site.uptime_24h >= 95 ? "#fbbf24" : "#f87171", fontWeight: 700 }}>
+                      {site.uptime_24h != null ? `${site.uptime_24h}%` : "-"}
                     </span>
-                  </td>
-
-                  <td style={{ padding: "14px 16px" }}>
-                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: site.http_status < 400 ? "#38bdf8" : "#f87171" }}>
-                      HTTP {site.http_status || (site.is_up ? 200 : 500)}
+                  </div>
+                  <div>
+                    <span style={{ color: "#64748b" }}>HTTP: </span>
+                    <span style={{ color: "#f1f5f9", fontWeight: 700 }}>{site.http_status || "-"}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: "#64748b" }}>SSL: </span>
+                    <span style={{ color: site.ssl_valid ? "#4ade80" : "#f87171", fontWeight: 700 }}>
+                      {site.ssl_valid === true ? `✓ ${site.ssl_expiry_days || "?"}d` : site.ssl_valid === false ? "✗ Invalid" : "-"}
                     </span>
-                  </td>
+                  </div>
+                </div>
 
-                  <td style={{ padding: "14px 16px" }}>
-                    {site.ssl_expiry_days !== null ? (
-                      <span style={{ color: site.ssl_expiry_days <= 14 ? "#fbbf24" : "#94a3b8", fontWeight: site.ssl_expiry_days <= 14 ? 700 : 500 }}>
-                        🔒 {site.ssl_expiry_days} days
-                      </span>
-                    ) : (
-                      <span style={{ color: "#64748b" }}>🔒 60 days</span>
-                    )}
-                  </td>
+                <div style={{ marginTop: "6px", fontSize: "11px", color: "#475569" }}>
+                  Server: {site.server_name} · Last check: {site.last_checked ? new Date(site.last_checked).toLocaleTimeString() : "Never"}
+                </div>
 
-                  <td style={{ padding: "14px 16px", color: "#94a3b8" }}>
-                    Server #{site.server_id}
-                  </td>
+                {site.error_message && (
+                  <div style={{ marginTop: "6px", fontSize: "11px", color: "#f87171", background: "rgba(248,113,113,0.08)", padding: "4px 8px", borderRadius: "4px" }}>
+                    {site.error_message}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-                  <td style={{ padding: "14px 20px", textAlign: "right" }}>
-                    <button
-                      onClick={() => handlePingSingle(site.id)}
-                      disabled={pingingId === site.id}
-                      style={{
-                        background: "rgba(56,189,248,0.08)",
-                        border: "1px solid rgba(56,189,248,0.25)",
-                        color: "#38bdf8",
-                        borderRadius: "6px",
-                        padding: "6px 10px",
-                        fontSize: "11px",
-                        fontWeight: 600,
-                        cursor: pingingId === site.id ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      {pingingId === site.id ? "Pinging..." : "⚡ Ping"}
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Response Time Chart for Selected Site */}
+      {selectedSite && history.length > 0 && (
+        <div className="card">
+          <h3 style={{ fontSize: "14px", fontWeight: 800, color: "#f1f5f9", marginBottom: "16px" }}>
+            📊 Response Time — {selectedSite.domain} (Last 24h)
+          </h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={history.map(h => ({
+              time: new Date(h.checked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              ms: h.response_time_ms || 0,
+              up: h.is_up ? 1 : 0,
+            }))}>
+              <XAxis dataKey="time" tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ background: "#0d1524", border: "1px solid #1d3047", borderRadius: "8px", color: "#f1f5f9" }} />
+              <Line type="monotone" dataKey="ms" stroke="#38bdf8" strokeWidth={2} dot={false} name="Response (ms)" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 }

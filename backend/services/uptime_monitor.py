@@ -1,220 +1,223 @@
 """
-24/7 Website Uptime & Latency Monitoring Engine
-(DataDog / 360Monitoring / UptimeRobot style)
-- Real-time HTTP/HTTPS response latency (ms)
-- HTTP Status Code verification
-- SSL Certificate Expiry countdown
-- Automatic Outage Alerting
+Uptime Monitor Service
+Checks all discovered project domains for HTTP availability every 60 seconds.
+Records UptimeCheck records and creates/resolves alerts on state changes.
 """
 import logging
-import time
+import os
 import socket
 import ssl
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
+from typing import Optional
+
 import requests
+from sqlalchemy.orm import Session
 
-from services.alerting_service import notify_alert
+from database import get_db
+from models import ProjectDiscovery, UptimeCheck, Alert, Server
+from services.notification_service import create_and_dispatch_alert
 
-logger = logging.getLogger("uptime_monitor")
+logger = logging.getLogger(__name__)
+
+# Timeout for HTTP checks
+HTTP_TIMEOUT = 15
+# How many consecutive failures before alerting
+FAILURE_THRESHOLD = 2
 
 
-def get_ssl_expiry_days(hostname: str, port: int = 443, timeout: int = 4) -> int:
-    """Query SSL certificate expiry days directly from remote TLS handshake."""
+def check_single_site(url: str) -> dict:
+    """Perform an HTTP GET check on a single URL. Returns check result dict."""
+    result = {
+        "is_up": False,
+        "http_status": None,
+        "response_time_ms": None,
+        "error_message": None,
+        "ssl_valid": None,
+        "ssl_expiry_days": None,
+    }
+
     try:
-        context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        with socket.create_connection((hostname, port), timeout=timeout) as sock:
-            with context.wrap_socket(sock, server_hostname=hostname) as ssock:
-                cert = ssock.getpeercert(binary_form=True)
-                # Parse x509 expiration
-                import ssl as _ssl
-                # In binary form or decoded
-                try:
-                    from cryptography import x509
-                    from cryptography.hazmat.backends import default_backend
-                    x509_cert = x509.load_der_x509_certificate(cert, default_backend())
-                    days_left = (x509_cert.not_valid_after_utc.replace(tzinfo=None) - datetime.utcnow()).days
-                    return max(0, days_left)
-                except Exception:
-                    return 60  # Default estimate if parsing fails
-    except Exception:
-        return None
+        start = time.monotonic()
+        resp = requests.get(
+            url,
+            timeout=HTTP_TIMEOUT,
+            allow_redirects=True,
+            headers={"User-Agent": "InfraIntel-UptimeMonitor/1.0"},
+            verify=True,
+        )
+        elapsed_ms = int((time.monotonic() - start) * 1000)
 
+        result["http_status"] = resp.status_code
+        result["response_time_ms"] = elapsed_ms
+        result["is_up"] = 200 <= resp.status_code < 500  # 5xx = server error = down
+        result["ssl_valid"] = True  # If we got here with verify=True, SSL is valid
 
-def ping_website(domain: str) -> dict:
-    """
-    Perform deep latency and health check for a given domain/URL.
-    Returns: {is_up, http_status, response_time_ms, has_ssl, ssl_days, error}
-    """
-    clean_domain = domain.strip().lower().replace("http://", "").replace("https://", "").split("/")[0]
-    if not clean_domain or clean_domain.endswith(".local") or clean_domain.endswith(".internal"):
-        return {
-            "domain": clean_domain,
-            "url": f"https://{clean_domain}",
-            "is_up": True,
-            "http_status": 200,
-            "response_time_ms": 45,
-            "has_ssl": True,
-            "ssl_days": 60,
-            "error": None,
-        }
-
-    target_url = f"https://{clean_domain}"
-    start_t = time.time()
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 (InfraIntel Monitor/3.0)"
-        }
-        res = requests.get(target_url, timeout=6, headers=headers, verify=False, allow_redirects=True)
-        latency_ms = int((time.time() - start_t) * 1000)
-        status_code = res.status_code
-        is_up = status_code < 500
-
-        ssl_days = get_ssl_expiry_days(clean_domain) or 60
-
-        return {
-            "domain": clean_domain,
-            "url": target_url,
-            "is_up": is_up,
-            "http_status": status_code,
-            "response_time_ms": latency_ms,
-            "has_ssl": True,
-            "ssl_days": ssl_days,
-            "error": None if is_up else f"HTTP {status_code} Error",
-        }
-    except requests.exceptions.SSLError:
-        # Retry with HTTP
+    except requests.exceptions.SSLError as e:
+        result["error_message"] = f"SSL Error: {str(e)[:200]}"
+        result["ssl_valid"] = False
+        # Try without SSL verification to still get status
         try:
-            http_url = f"http://{clean_domain}"
-            res = requests.get(http_url, timeout=6, headers={"User-Agent": "InfraIntel Monitor"}, allow_redirects=True)
-            latency_ms = int((time.time() - start_t) * 1000)
-            return {
-                "domain": clean_domain,
-                "url": http_url,
-                "is_up": res.status_code < 500,
-                "http_status": res.status_code,
-                "response_time_ms": latency_ms,
-                "has_ssl": False,
-                "ssl_days": 0,
-                "error": "SSL Certificate Invalid / Missing",
-            }
-        except Exception as e:
-            return {
-                "domain": clean_domain,
-                "url": target_url,
-                "is_up": False,
-                "http_status": None,
-                "response_time_ms": int((time.time() - start_t) * 1000),
-                "has_ssl": False,
-                "ssl_days": None,
-                "error": str(e)[:200],
-            }
+            start = time.monotonic()
+            resp = requests.get(url, timeout=HTTP_TIMEOUT, allow_redirects=True, verify=False,
+                                headers={"User-Agent": "InfraIntel-UptimeMonitor/1.0"})
+            result["http_status"] = resp.status_code
+            result["response_time_ms"] = int((time.monotonic() - start) * 1000)
+            result["is_up"] = 200 <= resp.status_code < 500
+        except Exception:
+            pass
+
+    except requests.exceptions.ConnectionError as e:
+        result["error_message"] = f"Connection Error: {str(e)[:200]}"
+    except requests.exceptions.Timeout:
+        result["error_message"] = f"Timeout after {HTTP_TIMEOUT}s"
     except Exception as e:
-        latency_ms = int((time.time() - start_t) * 1000)
-        return {
-            "domain": clean_domain,
-            "url": target_url,
-            "is_up": False,
-            "http_status": None,
-            "response_time_ms": latency_ms,
-            "has_ssl": False,
-            "ssl_days": None,
-            "error": str(e)[:200],
-        }
+        result["error_message"] = f"Error: {str(e)[:200]}"
+
+    # Check SSL expiry independently
+    if url.startswith("https://"):
+        try:
+            hostname = url.split("//")[1].split("/")[0].split(":")[0]
+            ctx = ssl.create_default_context()
+            with ctx.wrap_socket(socket.socket(), server_hostname=hostname) as s:
+                s.settimeout(5)
+                s.connect((hostname, 443))
+                cert = s.getpeercert()
+                not_after = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
+                result["ssl_expiry_days"] = (not_after - datetime.utcnow()).days
+                result["ssl_valid"] = result["ssl_expiry_days"] > 0
+        except Exception:
+            pass
+
+    return result
 
 
-def check_all_websites(db) -> dict:
-    """
-    Iterates through all discovered projects and performs live uptime and latency checks.
-    """
-    from models import ProjectDiscovery, WebsiteUptimeCheck
+def _get_previous_state(db: Session, site_id: int) -> Optional[bool]:
+    """Get the last known up/down state for a site."""
+    last = db.query(UptimeCheck).filter(
+        UptimeCheck.site_id == site_id
+    ).order_by(UptimeCheck.checked_at.desc()).first()
+    return last.is_up if last else None
 
-    discoveries = db.query(ProjectDiscovery).all()
-    results = []
-    up_count = 0
-    down_count = 0
-    total_latency = 0
 
-    now = datetime.utcnow()
+def _count_recent_failures(db: Session, site_id: int) -> int:
+    """Count consecutive recent failures for a site."""
+    recent = db.query(UptimeCheck).filter(
+        UptimeCheck.site_id == site_id
+    ).order_by(UptimeCheck.checked_at.desc()).limit(FAILURE_THRESHOLD).all()
 
+    count = 0
+    for check in recent:
+        if not check.is_up:
+            count += 1
+        else:
+            break
+    return count
+
+
+def run_uptime_checks(db: Session):
+    """Run uptime checks for all discovered projects with domains."""
+    discoveries = db.query(ProjectDiscovery).filter(
+        ProjectDiscovery.domain.isnot(None),
+        ProjectDiscovery.domain != "",
+        ProjectDiscovery.is_live == True,
+    ).all()
+
+    checked = 0
     for disc in discoveries:
-        domain = disc.domain or disc.project_name
+        domain = disc.domain.strip()
         if not domain:
             continue
 
-        check_res = ping_website(domain)
-        is_up = check_res["is_up"]
-        latency = check_res["response_time_ms"]
-        status_code = check_res["http_status"]
-        ssl_days = check_res["ssl_days"]
+        # Build URL — try HTTPS first
+        url = f"https://{domain}" if not domain.startswith("http") else domain
 
-        # Update Discovery model
-        disc.http_status = status_code
-        disc.is_live = is_up
-        if ssl_days is not None:
-            disc.has_ssl = ssl_days > 0
-            disc.ssl_expiry_days = ssl_days
-        disc.last_synced_at = now
+        result = check_single_site(url)
 
-        # Create Uptime Check History record
-        uptime_entry = WebsiteUptimeCheck(
-            discovery_id=disc.id,
-            domain=check_res["domain"],
-            url=check_res["url"],
-            http_status=status_code,
-            response_time_ms=latency,
-            is_up=is_up,
-            ssl_valid=check_res["has_ssl"],
-            ssl_days_remaining=ssl_days,
-            error_message=check_res["error"],
-            checked_at=now,
+        # Record the check
+        check = UptimeCheck(
+            site_id=disc.id,
+            server_id=disc.server_id,
+            url=url,
+            is_up=result["is_up"],
+            http_status=result["http_status"],
+            response_time_ms=result["response_time_ms"],
+            error_message=result["error_message"],
+            ssl_valid=result["ssl_valid"],
+            ssl_expiry_days=result["ssl_expiry_days"],
         )
-        db.add(uptime_entry)
+        db.add(check)
+        checked += 1
 
-        if is_up:
-            up_count += 1
-            total_latency += latency
-        else:
-            down_count += 1
-            # Dispatch Alert
-            notify_alert(
-                db,
-                category="WEBSITE_DOWN",
-                target_name=domain,
-                title=f"Website Down: {domain}",
-                description=f"Automated health check failed for {domain}. HTTP Status: {status_code or 'Timeout'}. Error: {check_res['error']}",
-                severity="CRITICAL",
-                target_type="project",
-                target_id=disc.id,
-                recommendation=f"Check web server vhost and DNS routing for domain {domain} on server #{disc.server_id}.",
-            )
+        # Check for state change and alert
+        prev_state = _get_previous_state(db, disc.id)
 
-        results.append({
-            "id": disc.id,
-            "domain": domain,
-            "project_name": disc.project_name,
-            "server_id": disc.server_id,
-            "is_up": is_up,
-            "http_status": status_code,
-            "response_time_ms": latency,
-            "has_ssl": check_res["has_ssl"],
-            "ssl_days": ssl_days,
-            "error": check_res["error"],
-        })
+        if not result["is_up"] and _count_recent_failures(db, disc.id) >= FAILURE_THRESHOLD - 1:
+            # Site is down — check if we already have an open alert
+            existing = db.query(Alert).filter(
+                Alert.site_id == disc.id,
+                Alert.type == "site_down",
+                Alert.is_resolved == False,
+            ).first()
 
-    db.commit()
+            if not existing:
+                server_name = disc.server.name if disc.server else "Unknown"
+                create_and_dispatch_alert(
+                    db,
+                    alert_type="site_down",
+                    severity="critical",
+                    message=f"Website {domain} is DOWN. HTTP Status: {result['http_status'] or 'N/A'}. Error: {result['error_message'] or 'No response'}",
+                    server_id=disc.server_id,
+                    site_id=disc.id,
+                    server_name=server_name,
+                )
 
-    total_sites = len(discoveries)
-    avg_latency = int(total_latency / max(1, up_count)) if up_count > 0 else 0
-    uptime_pct = round((up_count / max(1, total_sites)) * 100, 1) if total_sites > 0 else 100.0
+        elif result["is_up"] and prev_state is False:
+            # Site recovered — resolve open alerts
+            open_alerts = db.query(Alert).filter(
+                Alert.site_id == disc.id,
+                Alert.type == "site_down",
+                Alert.is_resolved == False,
+            ).all()
+            for a in open_alerts:
+                a.is_resolved = True
+                a.resolved_at = datetime.utcnow()
 
-    return {
-        "total_monitored": total_sites,
-        "up_count": up_count,
-        "down_count": down_count,
-        "uptime_percentage": uptime_pct,
-        "average_latency_ms": avg_latency,
-        "checked_at": now.isoformat(),
-        "websites": results,
-    }
+        # SSL expiry warning
+        if result["ssl_expiry_days"] is not None and result["ssl_expiry_days"] <= 14:
+            existing_ssl = db.query(Alert).filter(
+                Alert.site_id == disc.id,
+                Alert.type == "ssl_expiring",
+                Alert.is_resolved == False,
+            ).first()
+            if not existing_ssl:
+                server_name = disc.server.name if disc.server else "Unknown"
+                create_and_dispatch_alert(
+                    db,
+                    alert_type="ssl_expiring",
+                    severity="warning",
+                    message=f"SSL certificate for {domain} expires in {result['ssl_expiry_days']} days",
+                    server_id=disc.server_id,
+                    site_id=disc.id,
+                    server_name=server_name,
+                )
+
+    try:
+        db.commit()
+    except Exception as e:
+        logger.error(f"Uptime check commit error: {e}")
+        db.rollback()
+
+    logger.info(f"Uptime checks completed: {checked} sites checked")
+    return checked
+
+
+def uptime_check_job():
+    """Scheduler job entry point for uptime monitoring."""
+    db = next(get_db())
+    try:
+        run_uptime_checks(db)
+    except Exception as e:
+        logger.error(f"Uptime check job error: {e}")
+    finally:
+        db.close()

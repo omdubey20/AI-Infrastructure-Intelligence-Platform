@@ -11,9 +11,6 @@ export default function ServerDetail() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [actionMsg, setActionMsg] = useState(null);
-  const [agentInfo, setAgentInfo] = useState(null);
-  const [showAgentModal, setShowAgentModal] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const fetchServer = async () => {
     try {
@@ -26,22 +23,13 @@ export default function ServerDetail() {
     }
   };
 
-  const fetchAgentToken = async () => {
-    try {
-      const res = await api.get(`/agent/token/${id}`);
-      setAgentInfo(res.data);
-    } catch (e) {
-      console.error("fetchAgentToken error:", e);
-    }
-  };
-
   useEffect(() => {
     fetchServer();
-    fetchAgentToken();
     const interval = setInterval(fetchServer, 5000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
 
   const handleScan = async () => {
     setScanning(true);
@@ -57,75 +45,26 @@ export default function ServerDetail() {
     }
   };
 
-  const handleCopyCommand = () => {
-    if (agentInfo?.install_command) {
-      navigator.clipboard.writeText(agentInfo.install_command);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    }
-  };
-
   if (loading) return <div style={{ padding: "32px", color: "#94a3b8" }}>Loading server details...</div>;
   if (!server) return <div style={{ padding: "32px", color: "#f87171" }}>Server not found.</div>;
-
-  let topProcs = [];
-  if (server.top_processes) {
-    try {
-      topProcs = typeof server.top_processes === "string" ? JSON.parse(server.top_processes) : server.top_processes;
-    } catch (e) {}
-  }
 
   return (
     <div style={{ padding: "32px", background: "#080e1a", minHeight: "100vh" }}>
       {/* Header */}
-      <div style={{ marginBottom: "24px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
+      <div style={{ marginBottom: "24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <button onClick={() => navigate("/servers")} style={{ background: "none", border: "none", color: "#38bdf8", cursor: "pointer", fontSize: "13px", fontWeight: 700, marginBottom: "8px" }}>
             ← Back to Servers
           </button>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9", margin: 0 }}>{server.name}</h1>
-            {server.agent_installed ? (
-              <span style={{ background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)", padding: "3px 10px", borderRadius: "12px", fontSize: "11px", fontWeight: 800 }}>
-                ● 24/7 AGENT ACTIVE
-              </span>
-            ) : (
-              <span style={{ background: "rgba(148,163,184,0.12)", color: "#94a3b8", border: "1px solid rgba(148,163,184,0.2)", padding: "3px 10px", borderRadius: "12px", fontSize: "11px", fontWeight: 700 }}>
-                ○ AGENT NOT INSTALLED
-              </span>
-            )}
-          </div>
+          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>{server.name}</h1>
           <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-            {server.ip_address} · {server.environment} · {server.data_source === "agent" ? "🎯 24/7 DEDICATED AGENT" : (server.data_source === "ssh" ? "LIVE SSH" : "WHM REST API")}
+            {server.ip_address} · {server.environment} · {server.data_source === "ssh" ? "LIVE SSH" : "WHM ESTIMATED"}
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          <button
-            onClick={() => setShowAgentModal(true)}
-            style={{
-              background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              padding: "10px 16px",
-              fontSize: "13px",
-              fontWeight: 700,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              boxShadow: "0 0 16px rgba(99,102,241,0.3)"
-            }}
-          >
-            <span>⚡</span>
-            <span>Install 24/7 Agent</span>
-          </button>
-
-          <button onClick={handleScan} disabled={scanning} className="btn-primary">
-            {scanning ? <><span className="spinner" /> Scanning...</> : "🔍 Scan Server Now"}
-          </button>
-        </div>
+        <button onClick={handleScan} disabled={scanning} className="btn-primary">
+          {scanning ? <><span className="spinner" /> Scanning...</> : "⚡ Scan Server Now"}
+        </button>
       </div>
 
       {actionMsg && (
@@ -140,7 +79,7 @@ export default function ServerDetail() {
         {/* Resource Usage & Metrics */}
         <div className="card">
           <h3 style={{ fontSize: "14px", fontWeight: 800, color: "#94a3b8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px" }}>
-            Real-Time Kernel Metrics
+            Real-Time Resource Metrics
           </h3>
 
           <MetricBar label="CPU Usage" value={server.cpu_usage} />
@@ -161,74 +100,32 @@ export default function ServerDetail() {
               <p style={{ fontSize: "16px", fontWeight: 800, color: "#f1f5f9" }}>{server.uptime_days} days</p>
             </div>
             <div>
-              <p style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>TELEMETRY MODE</p>
-              <p style={{ fontSize: "14px", fontWeight: 800, color: server.data_source === "agent" ? "#4ade80" : "#38bdf8" }}>
-                {server.data_source === "agent" ? "Agent 24/7" : (server.data_source === "ssh" ? "SSH Polling" : "WHM REST")}
-              </p>
+              <p style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>ERRORS</p>
+              <p style={{ fontSize: "16px", fontWeight: 800, color: server.error_count > 0 ? "#f87171" : "#4ade80" }}>{server.error_count}</p>
             </div>
           </div>
         </div>
 
-        {/* AI & ML Risk Assessment */}
-        <div className="card" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <h3 style={{ fontSize: "14px", fontWeight: 800, color: "#94a3b8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "12px" }}>
-            AI Predictive Risk Score
-          </h3>
-          <RiskGauge score={server.risk_score} />
-          <div style={{ textAlign: "center", marginTop: "12px" }}>
-            <p style={{ fontSize: "12px", color: "#94a3b8" }}>
-              Confidence: <strong style={{ color: "#f1f5f9" }}>{Math.round((server.ai_risk_confidence || 0.85) * 100)}%</strong>
-            </p>
-            {server.ai_recommendation && (
-              <p style={{ fontSize: "12px", color: "#38bdf8", marginTop: "4px" }}>
-                {server.ai_recommendation}
-              </p>
-            )}
+        {/* Risk & System Info */}
+        <div className="card" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+          <RiskGauge score={server.risk_score} size={84} />
+          <div style={{ marginTop: "16px", fontSize: "13px", color: "#94a3b8" }}>
+            <p><strong>OS:</strong> {server.os_name || "Linux"}</p>
+            <p><strong>Kernel:</strong> {server.kernel || "-"}</p>
+            <p><strong>Architecture:</strong> {server.architecture || "x86_64"}</p>
+            <p><strong>Web Server:</strong> {server.web_server || "Nginx/Apache"}</p>
           </div>
         </div>
       </div>
 
-      {/* Top Kernel Processes (if streamed by agent) */}
-      {topProcs.length > 0 && (
-        <div className="card" style={{ marginBottom: "24px" }}>
-          <h3 style={{ fontSize: "14px", fontWeight: 800, color: "#94a3b8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px" }}>
-            ⚡ Top Kernel Processes (Streamed by 24/7 Agent)
-          </h3>
-          <div className="table-responsive">
-            <table>
-              <thead>
-                <tr>
-                  <th>PID</th>
-                  <th>User</th>
-                  <th>CPU %</th>
-                  <th>Memory %</th>
-                  <th>Command / Daemon</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topProcs.map((proc, idx) => (
-                  <tr key={idx}>
-                    <td style={{ fontFamily: "monospace", color: "#94a3b8" }}>{proc.pid}</td>
-                    <td style={{ color: "#38bdf8", fontWeight: 700 }}>{proc.user}</td>
-                    <td style={{ fontWeight: 800, color: proc.cpu > 20 ? "#f87171" : "#4ade80" }}>{proc.cpu}%</td>
-                    <td style={{ fontWeight: 800, color: proc.mem > 20 ? "#fbbf24" : "#cbd5e1" }}>{proc.mem}%</td>
-                    <td style={{ fontFamily: "monospace", fontSize: "12px", color: "#f1f5f9" }}>{proc.command}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Discovered Web Projects */}
+      {/* Hosted Projects Table */}
       <div className="card">
         <h3 style={{ fontSize: "14px", fontWeight: 800, color: "#94a3b8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px" }}>
-          Discovered Web Projects & Frameworks ({server.projects ? server.projects.length : 0})
+          Hosted Projects ({server.projects_count})
         </h3>
 
-        {!server.projects || server.projects.length === 0 ? (
-          <p style={{ color: "#64748b", fontSize: "13px" }}>No projects discovered on this server yet. Click "Scan Server Now" to initiate discovery.</p>
+        {server.projects?.length === 0 ? (
+          <p style={{ color: "#64748b", fontSize: "13px" }}>No projects discovered on this server yet.</p>
         ) : (
           <div className="table-responsive">
             <table>
@@ -239,7 +136,7 @@ export default function ServerDetail() {
                   <th>Framework</th>
                   <th>Path</th>
                   <th>Status</th>
-                  <th>Risk Score</th>
+                  <th>Risk</th>
                 </tr>
               </thead>
               <tbody>
@@ -254,10 +151,9 @@ export default function ServerDetail() {
                     </td>
                     <td style={{ fontFamily: "monospace", color: "#64748b", fontSize: "12px" }}>{p.path}</td>
                     <td>
-                      <span className="badge badge-green">
-                        ● Active (Live)
-                      </span>
+                      <span className="badge badge-green">● Active</span>
                     </td>
+
                     <td style={{ fontWeight: 800, color: p.risk_score >= 70 ? "#f87171" : "#4ade80" }}>{p.risk_score}</td>
                   </tr>
                 ))}
@@ -265,64 +161,8 @@ export default function ServerDetail() {
             </table>
           </div>
         )}
+
       </div>
-
-      {/* 24/7 Agent Install Modal */}
-      {showAgentModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
-          <div style={{ background: "#111c2e", border: "1px solid #2b4565", borderRadius: "16px", padding: "32px", maxWidth: "680px", width: "100%" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontSize: "24px" }}>⚡</span>
-                <h2 style={{ fontSize: "18px", fontWeight: 800, margin: 0, color: "#f1f5f9" }}>
-                  Install 24/7 Monitoring Agent (DataDog Style)
-                </h2>
-              </div>
-              <button onClick={() => setShowAgentModal(false)} style={{ background: "none", border: "none", color: "#94a3b8", fontSize: "20px", cursor: "pointer" }}>✕</button>
-            </div>
-
-            <p style={{ color: "#94a3b8", fontSize: "13px", lineHeight: "1.5", marginBottom: "20px" }}>
-              Run this single command on <strong>{server.name}</strong> ({server.ip_address}) as <code>root</code>. It installs a lightweight daemon (&lt;5MB RAM) that streams sub-second CPU spikes, RAM buffers, and process hogs directly to your platform.
-            </p>
-
-            <div style={{ background: "#060b13", border: "1px solid #1d3047", borderRadius: "10px", padding: "16px", marginBottom: "20px", position: "relative" }}>
-              <div style={{ fontSize: "11px", color: "#64748b", fontWeight: 700, letterSpacing: "0.08em", marginBottom: "8px" }}>ONE-LINE INSTALL COMMAND</div>
-              <pre style={{ margin: 0, color: "#38bdf8", fontFamily: "monospace", fontSize: "13px", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-                {agentInfo?.install_command || "Generating command..."}
-              </pre>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
-              <button
-                onClick={handleCopyCommand}
-                style={{
-                  background: copied ? "linear-gradient(135deg, #059669, #10b981)" : "linear-gradient(135deg, #0284c7, #2563eb)",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "10px 20px",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px"
-                }}
-              >
-                <span>{copied ? "✓" : "📋"}</span>
-                <span>{copied ? "Copied to Clipboard!" : "Copy 1-Line Command"}</span>
-              </button>
-
-              <button
-                onClick={() => setShowAgentModal(false)}
-                style={{ background: "#1e293b", border: "none", color: "#94a3b8", borderRadius: "8px", padding: "10px 18px", fontSize: "13px", cursor: "pointer" }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

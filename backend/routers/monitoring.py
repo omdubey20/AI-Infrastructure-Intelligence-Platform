@@ -1,115 +1,140 @@
 """
-Website Uptime & Latency Monitoring API Router
-- Live uptime checks (24/7 status, latency in ms, SSL expiry)
-- On-demand ping triggers
-- Historical uptime logs
+Monitoring Router — Website Uptime Monitoring API
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timedelta
+from typing import Optional
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
+
 from database import get_db
-from routers.auth import get_current_user, require_role
-from services.uptime_monitor import check_all_websites, ping_website
-from models import ProjectDiscovery, WebsiteUptimeCheck
+from models import ProjectDiscovery, UptimeCheck, Server
+from routers.auth import get_current_user
 
-router = APIRouter(
-    prefix="/monitoring",
-    tags=["Website Monitoring"]
-)
+router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 
 
-@router.get("/overview")
-def get_monitoring_overview(
+@router.get("/status")
+def get_monitoring_status(
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
-    """Get high-level 24/7 uptime stats, average latency, and health breakdown."""
-    discoveries = db.query(ProjectDiscovery).all()
-    total_sites = len(discoveries)
-    up_count = sum(1 for d in discoveries if d.is_live)
-    down_count = total_sites - up_count
-    uptime_pct = round((up_count / max(1, total_sites)) * 100, 1) if total_sites > 0 else 100.0
+    """Get current up/down status for all monitored sites."""
+    # Get all live projects with domains
+    sites = db.query(ProjectDiscovery).filter(
+        ProjectDiscovery.domain.isnot(None),
+        ProjectDiscovery.domain != "",
+        ProjectDiscovery.is_live == True,
+    ).all()
 
-    # Calculate average latency from recent checks
-    recent_checks = db.query(WebsiteUptimeCheck).order_by(WebsiteUptimeCheck.checked_at.desc()).limit(100).all()
-    latencies = [c.response_time_ms for c in recent_checks if c.response_time_ms and c.is_up]
-    avg_latency = int(sum(latencies) / len(latencies)) if latencies else 45
+    result = []
+    for site in sites:
+        # Get latest check
+        latest = db.query(UptimeCheck).filter(
+            UptimeCheck.site_id == site.id
+        ).order_by(UptimeCheck.checked_at.desc()).first()
 
-    ssl_expiring_soon = sum(1 for d in discoveries if d.ssl_expiry_days is not None and d.ssl_expiry_days <= 14)
+        # Calculate uptime percentage (last 24h)
+        cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+        total_checks = db.query(UptimeCheck).filter(
+            UptimeCheck.site_id == site.id,
+            UptimeCheck.checked_at >= cutoff_24h,
+        ).count()
 
-    return {
-        "total_websites": total_sites,
-        "up_count": up_count,
-        "down_count": down_count,
-        "uptime_percentage": uptime_pct,
-        "average_latency_ms": avg_latency,
-        "ssl_expiring_soon": ssl_expiring_soon,
-    }
+        up_checks = db.query(UptimeCheck).filter(
+            UptimeCheck.site_id == site.id,
+            UptimeCheck.checked_at >= cutoff_24h,
+            UptimeCheck.is_up == True,
+        ).count()
 
+        uptime_pct = round((up_checks / total_checks * 100), 2) if total_checks > 0 else None
 
-@router.get("/websites")
-def list_monitored_websites(
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    """List all monitored websites with live status, latency, HTTP code, and SSL days."""
-    discoveries = db.query(ProjectDiscovery).all()
-    results = []
+        # Average response time (last 24h)
+        avg_rt = db.query(func.avg(UptimeCheck.response_time_ms)).filter(
+            UptimeCheck.site_id == site.id,
+            UptimeCheck.checked_at >= cutoff_24h,
+            UptimeCheck.is_up == True,
+        ).scalar()
 
-    for d in discoveries:
-        domain = d.domain or d.project_name
-        results.append({
-            "id": d.id,
-            "project_name": d.project_name,
-            "domain": domain,
-            "url": f"https://{domain}",
-            "server_id": d.server_id,
-            "is_up": bool(d.is_live),
-            "http_status": d.http_status or (200 if d.is_live else 500),
-            "has_ssl": bool(d.has_ssl),
-            "ssl_expiry_days": d.ssl_expiry_days,
-            "framework": d.framework,
-            "size_mb": d.size_mb,
-            "last_checked": d.last_synced_at.isoformat() if d.last_synced_at else None,
+        server_name = site.server.name if site.server else "Unknown"
+
+        result.append({
+            "id": site.id,
+            "domain": site.domain,
+            "url": f"https://{site.domain}",
+            "server_id": site.server_id,
+            "server_name": server_name,
+            "is_up": latest.is_up if latest else None,
+            "http_status": latest.http_status if latest else None,
+            "response_time_ms": latest.response_time_ms if latest else None,
+            "ssl_valid": latest.ssl_valid if latest else None,
+            "ssl_expiry_days": latest.ssl_expiry_days if latest else None,
+            "last_checked": latest.checked_at.isoformat() if latest else None,
+            "error_message": latest.error_message if latest and not latest.is_up else None,
+            "uptime_24h": uptime_pct,
+            "avg_response_ms": round(avg_rt) if avg_rt else None,
+            "total_checks_24h": total_checks,
         })
 
-    return results
+    return result
 
 
-@router.post("/check-now")
-def trigger_live_check(
+@router.get("/history/{site_id}")
+def get_uptime_history(
+    site_id: int,
+    hours: int = Query(24, ge=1, le=168),
     db: Session = Depends(get_db),
-    current_user = Depends(require_role(["admin", "devops"]))
+    current_user=Depends(get_current_user)
 ):
-    """Trigger an immediate live HTTP/HTTPS ping check across all discovered websites."""
-    result = check_all_websites(db)
-    return {
-        "message": "Live website monitoring check completed",
-        **result
-    }
+    """Get time-series uptime check data for a site."""
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    checks = db.query(UptimeCheck).filter(
+        UptimeCheck.site_id == site_id,
+        UptimeCheck.checked_at >= cutoff,
+    ).order_by(UptimeCheck.checked_at.asc()).all()
+
+    return [
+        {
+            "checked_at": c.checked_at.isoformat(),
+            "is_up": c.is_up,
+            "http_status": c.http_status,
+            "response_time_ms": c.response_time_ms,
+            "error_message": c.error_message,
+        }
+        for c in checks
+    ]
 
 
-@router.post("/check/{discovery_id}")
-def check_single_website(
-    discovery_id: int,
+@router.get("/summary")
+def get_monitoring_summary(
     db: Session = Depends(get_db),
-    current_user = Depends(require_role(["admin", "devops"]))
+    current_user=Depends(get_current_user)
 ):
-    """Perform on-demand instant ping on a single project."""
-    disc = db.query(ProjectDiscovery).filter(ProjectDiscovery.id == discovery_id).first()
-    if not disc:
-        raise HTTPException(status_code=404, detail="Project not found")
+    """Get aggregate monitoring summary stats."""
+    total_sites = db.query(ProjectDiscovery).filter(
+        ProjectDiscovery.domain.isnot(None),
+        ProjectDiscovery.domain != "",
+        ProjectDiscovery.is_live == True,
+    ).count()
 
-    domain = disc.domain or disc.project_name
-    res = ping_website(domain)
+    # Get sites with recent checks
+    cutoff = datetime.utcnow() - timedelta(minutes=5)
+    recent_checks = db.query(UptimeCheck).filter(
+        UptimeCheck.checked_at >= cutoff
+    ).all()
 
-    disc.http_status = res["http_status"]
-    disc.is_live = res["is_up"]
-    if res["ssl_days"] is not None:
-        disc.has_ssl = res["has_ssl"]
-        disc.ssl_expiry_days = res["ssl_days"]
-    db.commit()
+    # Deduplicate by site_id, keep latest
+    latest_by_site = {}
+    for c in recent_checks:
+        if c.site_id not in latest_by_site or c.checked_at > latest_by_site[c.site_id].checked_at:
+            latest_by_site[c.site_id] = c
+
+    sites_up = sum(1 for c in latest_by_site.values() if c.is_up)
+    sites_down = sum(1 for c in latest_by_site.values() if not c.is_up)
 
     return {
-        "message": f"Ping completed for {domain}",
-        "result": res
+        "total_monitored": total_sites,
+        "sites_up": sites_up,
+        "sites_down": sites_down,
+        "last_check_count": len(latest_by_site),
     }

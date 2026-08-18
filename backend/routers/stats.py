@@ -1,11 +1,11 @@
 """
 Dashboard Stats Router — Real-time metrics from DB
-All values trace back to SSH, WHM API, or database queries. Never estimated.
+All values trace back to SSH, WHM API, agent telemetry, or database queries. Never estimated.
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Server, ProjectDiscovery
+from models import Server, ProjectDiscovery, Alert
 from services.risk_engine import calculate_server_risk
 from routers.auth import get_current_user
 
@@ -27,6 +27,8 @@ def _generate_server_insights(s) -> list:
         hints.append({"type": "warning", "msg": f"SSL expires in {s.ssl_expiry_days} days"})
     if getattr(s, "firewall_status", None) in ("inactive", "disabled", "unknown"):
         hints.append({"type": "warning", "msg": "No active firewall detected"})
+    if getattr(s, "agent_installed", False) and getattr(s, "status", "") == "agent_offline":
+        hints.append({"type": "critical", "msg": "Agent offline — no telemetry received"})
     if not hints:
         hints.append({"type": "info", "msg": "Server operating within normal parameters"})
     return hints
@@ -48,9 +50,11 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
 
     top_risk_servers = sorted(servers, key=lambda x: x.risk_score or 0, reverse=True)[:5]
 
-    live_projects      = sum(1 for d in discoveries if getattr(d, "is_live", False) and not getattr(d, "is_inactive", False))
+    live_projects      = sum(1 for d in discoveries if getattr(d, "is_live", False))
     duplicate_projects = sum(1 for d in discoveries if getattr(d, "is_duplicate", False))
-    inactive_projects  = sum(1 for d in discoveries if getattr(d, "is_inactive", False))
+
+    # Alert counts
+    open_alerts = db.query(Alert).filter(Alert.is_resolved == False).count()
 
     server_breakdown = {}
     for d in discoveries:
@@ -64,7 +68,7 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
         "total_projects":     total_projects,
         "live_projects":      live_projects,
         "duplicate_projects": duplicate_projects,
-        "inactive_projects":  inactive_projects,
+        "open_alerts":        open_alerts,
         "healthy_servers":    healthy_servers,
         "warning_servers":    warning_servers,
         "critical_servers":   critical_servers,
@@ -82,6 +86,7 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
                 "uptime_days":    s.uptime_days or 0,
                 "load_avg_1":     getattr(s, "load_avg_1", 0.0) or 0.0,
                 "data_source":    s.data_source or "estimated",
+                "agent_installed": getattr(s, "agent_installed", False),
                 "last_scanned_at": s.last_scanned_at.isoformat() if s.last_scanned_at else None,
                 "projects_count": server_breakdown.get(s.id, 0),
                 "insights":       _generate_server_insights(s),

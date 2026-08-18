@@ -186,8 +186,8 @@ export default function Servers() {
                       </span>
                     </td>
                     <td>
-                      <span className={s.data_source === "agent" ? "badge badge-green" : (s.data_source === "ssh" ? "badge badge-green" : "badge badge-blue")}>
-                        {s.data_source === "agent" ? "🎯 24/7 AGENT" : (s.data_source === "ssh" ? "LIVE SSH" : (s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"))}
+                      <span className={s.data_source === "ssh" ? "badge badge-green" : "badge badge-blue"}>
+                        {s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"}
                       </span>
                     </td>
                     <td>
@@ -201,16 +201,13 @@ export default function Servers() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "6px" }}>
-                        <button onClick={(e) => { e.stopPropagation(); navigate(`/servers/${s.id}`); }} className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px", background: "rgba(99,102,241,0.15)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.3)" }}>
-                          ⚡ 24/7 Agent
+                        <button onClick={(e) => handleScanSingle(s.id, s.name, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px" }}>
+                          ⚡ Scan
                         </button>
-                        <button onClick={(e) => handleScanSingle(s.id, s.name, e)} className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px" }}>
-                          🔍 Scan
+                        <button onClick={(e) => handleOpenEdit(s, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px", background: "rgba(139,92,246,0.15)", color: "#c084fc", border: "1px solid rgba(139,92,246,0.3)" }}>
+                          ✏️ Credentials
                         </button>
-                        <button onClick={(e) => handleOpenEdit(s, e)} className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px", background: "rgba(139,92,246,0.15)", color: "#c084fc", border: "1px solid rgba(139,92,246,0.3)" }}>
-                          ✏️ Creds
-                        </button>
-                        <button onClick={(e) => handleDelete(s.id, s.name, e)} className="btn-danger" style={{ padding: "4px 8px", fontSize: "11px" }}>
+                        <button onClick={(e) => handleDelete(s.id, s.name, e)} className="btn-danger" style={{ padding: "4px 10px", fontSize: "11px" }}>
                           Delete
                         </button>
                       </div>

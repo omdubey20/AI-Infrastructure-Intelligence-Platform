@@ -9,9 +9,9 @@ import Dashboard from "./pages/Dashboard";
 import Servers from "./pages/Servers";
 import ServerDetail from "./pages/ServerDetail";
 import Projects from "./pages/Projects";
-import Monitoring from "./pages/Monitoring";
-import Security from "./pages/Security";
 import Duplicates from "./pages/Duplicates";
+import Monitoring from "./pages/Monitoring";
+import Alerts from "./pages/Alerts";
 import Intelligence from "./pages/Intelligence";
 
 function PrivateRoute({ children }) {
@@ -53,9 +53,9 @@ export default function App() {
           <Route path="/servers" element={<PrivateRoute><Layout><Servers /></Layout></PrivateRoute>} />
           <Route path="/servers/:id" element={<PrivateRoute><Layout><ServerDetail /></Layout></PrivateRoute>} />
           <Route path="/projects" element={<PrivateRoute><Layout><Projects /></Layout></PrivateRoute>} />
-          <Route path="/monitoring" element={<PrivateRoute><Layout><Monitoring /></Layout></PrivateRoute>} />
-          <Route path="/security" element={<PrivateRoute><Layout><Security /></Layout></PrivateRoute>} />
           <Route path="/duplicates" element={<PrivateRoute><Layout><Duplicates /></Layout></PrivateRoute>} />
+          <Route path="/monitoring" element={<PrivateRoute><Layout><Monitoring /></Layout></PrivateRoute>} />
+          <Route path="/alerts" element={<PrivateRoute><Layout><Alerts /></Layout></PrivateRoute>} />
           <Route path="/intelligence" element={<PrivateRoute><Layout><Intelligence /></Layout></PrivateRoute>} />
 
           <Route path="*" element={<Navigate to="/dashboard" />} />

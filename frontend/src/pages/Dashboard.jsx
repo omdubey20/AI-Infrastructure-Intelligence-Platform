@@ -15,13 +15,14 @@ export default function Dashboard() {
   const [mlTraining, setMlTraining] = useState(false);
   const [bannerMsg, setBannerMsg] = useState(null);
   const [insights, setInsights] = useState([]);
+  const [alertCount, setAlertCount] = useState(0);
+  const [monitorCount, setMonitorCount] = useState(0);
 
   const [stats, setStats] = useState({
     total_servers: 0,
     total_projects: 0,
     live_projects: 0,
     duplicate_projects: 0,
-    inactive_projects: 0,
     healthy_servers: 0,
     warning_servers: 0,
     critical_servers: 0,
@@ -42,11 +43,21 @@ export default function Dashboard() {
     } catch (e) {
       console.error("Failed to fetch AI insights:", e);
     }
+
+    try {
+      const aRes = await api.get("/alerts/?limit=1");
+      if (aRes?.data) setAlertCount(aRes.data.total_open || 0);
+    } catch { /* alerts endpoint may not exist yet */ }
+
+    try {
+      const mRes = await api.get("/monitoring/status");
+      if (Array.isArray(mRes?.data)) setMonitorCount(mRes.data.length);
+    } catch { /* monitoring endpoint may not exist yet */ }
   };
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 30000);
+    const interval = setInterval(fetchStats, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -109,7 +120,7 @@ export default function Dashboard() {
           </p>
           <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>System Overview</h1>
           <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-            Centralized server management, live project discovery, duplicate detection, and ML risk predictions
+            Centralized server monitoring, live project discovery, uptime checks, and ML risk predictions
           </p>
         </div>
 
@@ -135,19 +146,19 @@ export default function Dashboard() {
       {/* KPI Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "16px", marginBottom: "28px" }}>
         <div onClick={() => navigate("/servers")} style={{ cursor: "pointer" }}>
-          <StatCard title="Total Servers" value={stats.total_servers} icon="🖥️" color="blue" subtitle="Live SSH / WHM" />
+          <StatCard title="Total Servers" value={stats.total_servers} icon="🖥️" color="blue" subtitle="Live Monitored" />
         </div>
         <div onClick={() => navigate("/projects")} style={{ cursor: "pointer" }}>
-          <StatCard title="Live Projects" value={stats.live_projects || stats.total_projects} icon="📁" color="teal" subtitle="Active deployments" />
-        </div>
-        <div onClick={() => navigate("/monitoring")} style={{ cursor: "pointer" }}>
-          <StatCard title="Website Uptime" value="24/7" icon="📈" color="green" subtitle="Live Latency & SSL" />
-        </div>
-        <div onClick={() => navigate("/security")} style={{ cursor: "pointer" }}>
-          <StatCard title="Security & Alerts" value="Active" icon="🛡️" color="red" subtitle="Teams & Email Alerts" />
+          <StatCard title="Discovered Projects" value={stats.total_projects} icon="📁" color="teal" subtitle="Across all servers" />
         </div>
         <div onClick={() => navigate("/duplicates")} style={{ cursor: "pointer" }}>
-          <StatCard title="Duplicate Copies" value={stats.duplicate_projects} icon="👯" color="amber" subtitle="Cross-server clones" />
+          <StatCard title="Duplicate Copies" value={stats.duplicate_projects} icon="👯" color="amber" subtitle="Wasting storage" />
+        </div>
+        <div onClick={() => navigate("/monitoring")} style={{ cursor: "pointer" }}>
+          <StatCard title="Uptime Monitors" value={monitorCount} icon="📡" color="green" subtitle="Website checks" />
+        </div>
+        <div onClick={() => navigate("/alerts")} style={{ cursor: "pointer" }}>
+          <StatCard title="Active Alerts" value={alertCount} icon="🔔" color="red" subtitle="Needs attention" />
         </div>
       </div>
 
