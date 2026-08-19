@@ -72,73 +72,35 @@ def ensure_default_admin():
         db.close()
 
 def migrate_db_schema():
-    """Ensure all required columns exist in PostgreSQL. Runs ALTER TABLE ADD COLUMN IF NOT EXISTS for each."""
-    from sqlalchemy import text, inspect
-
-    columns_to_add = [
-        ("servers", "agent_api_key", "VARCHAR"),
-        ("servers", "agent_installed", "BOOLEAN DEFAULT FALSE"),
-        ("servers", "agent_last_seen", "TIMESTAMP"),
-        ("servers", "data_source", "VARCHAR DEFAULT 'estimated'"),
-        ("servers", "last_scanned_at", "TIMESTAMP"),
-        ("servers", "last_full_scan_at", "TIMESTAMP"),
-        ("servers", "scan_status", "VARCHAR DEFAULT 'never_scanned'"),
-        ("servers", "scan_error", "TEXT"),
-        ("servers", "ai_risk_confidence", "DOUBLE PRECISION DEFAULT 0.0"),
-        ("servers", "ai_recommendation", "VARCHAR"),
-        ("servers", "whm_host", "VARCHAR"),
-        ("servers", "whm_token", "VARCHAR"),
-        ("servers", "whm_port", "INTEGER DEFAULT 2087"),
-        ("servers", "whm_accounts_count", "INTEGER DEFAULT 0"),
-        ("servers", "ssh_username", "VARCHAR"),
-        ("servers", "ssh_password", "VARCHAR"),
-        ("servers", "ssh_private_key", "VARCHAR"),
-        ("servers", "ssh_port", "INTEGER DEFAULT 22"),
-        ("servers", "credentials_encrypted", "BOOLEAN DEFAULT FALSE"),
-        ("alerts", "notification_sent", "BOOLEAN DEFAULT FALSE"),
-        ("alerts", "teams_sent_at", "TIMESTAMP"),
-        ("alerts", "email_sent_at", "TIMESTAMP"),
-        ("alerts", "site_id", "INTEGER"),
-        ("alerts", "resolved_at", "TIMESTAMP"),
+    """Ensure new columns exist. Uses ADD COLUMN IF NOT EXISTS (PostgreSQL 9.6+). Silently skips on error."""
+    from sqlalchemy import text
+    migrations = [
+        'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_api_key" VARCHAR',
+        'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_installed" BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_last_seen" TIMESTAMP',
+        'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "notification_sent" BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "teams_sent_at" TIMESTAMP',
+        'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "email_sent_at" TIMESTAMP',
+        'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "site_id" INTEGER',
+        'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "resolved_at" TIMESTAMP',
     ]
-
-    # Check which tables exist first
-    inspector = inspect(engine)
-    existing_tables = set(inspector.get_table_names())
-    logger.info(f"migrate_db_schema: existing tables = {existing_tables}")
-
-    added = 0
-    skipped = 0
-    for table, col, col_type in columns_to_add:
-        if table not in existing_tables:
-            logger.info(f"migrate_db_schema: table '{table}' does not exist yet, skipping column '{col}'")
-            skipped += 1
-            continue
+    for sql in migrations:
         try:
-            # Check if column already exists
-            existing_cols = {c["name"] for c in inspector.get_columns(table)}
-            if col in existing_cols:
-                skipped += 1
-                continue
-
             with engine.begin() as conn:
-                sql = f'ALTER TABLE "{table}" ADD COLUMN "{col}" {col_type}'
                 conn.execute(text(sql))
-                added += 1
-                logger.info(f"migrate_db_schema: added {table}.{col} ({col_type})")
         except Exception as e:
-            logger.warning(f"migrate_db_schema: failed to add {table}.{col}: {e}")
-
-    logger.info(f"migrate_db_schema complete: {added} added, {skipped} skipped")
+            logger.debug(f"Migration skipped: {e}")
+    logger.info("migrate_db_schema: complete")
 
 
 try:
     Base.metadata.create_all(bind=engine, checkfirst=True)
+    logger.info("create_all done")
     migrate_db_schema()
     ensure_default_admin()
     logger.info("Database initialization completed successfully.")
 except Exception as db_init_err:
-    logger.error(f"Database initialization FAILED: {db_init_err}", exc_info=True)
+    logger.error(f"Database initialization error: {db_init_err}")
 
 # ========================
 # Rate Limiter
