@@ -435,7 +435,23 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                 last_error = raw_res.get("error")
                 continue
 
-            accts = raw_res.get("data", {}).get("acct", []) if isinstance(raw_res, dict) else []
+            accts = []
+            if isinstance(raw_res, dict):
+                if "data" in raw_res and isinstance(raw_res["data"], dict) and "acct" in raw_res["data"]:
+                    accts = raw_res["data"]["acct"]
+                elif "acct" in raw_res and isinstance(raw_res["acct"], list):
+                    accts = raw_res["acct"]
+                elif "cpanelresult" in raw_res and isinstance(raw_res["cpanelresult"], dict):
+                    accts = raw_res["cpanelresult"].get("data", [])
+
+            if not accts:
+                raw_res_v0 = _whm_get(whm_host, whm_token, whm_port, "listaccts")
+                if isinstance(raw_res_v0, dict):
+                    if "acct" in raw_res_v0 and isinstance(raw_res_v0["acct"], list):
+                        accts = raw_res_v0["acct"]
+                    elif "data" in raw_res_v0 and isinstance(raw_res_v0["data"], dict) and "acct" in raw_res_v0["data"]:
+                        accts = raw_res_v0["data"]["acct"]
+
             if accts:
                 loads = get_server_load(whm_host, whm_token, whm_port)
                 disk_pct = get_server_disk(whm_host, whm_token, whm_port)
