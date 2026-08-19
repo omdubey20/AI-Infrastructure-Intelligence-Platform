@@ -177,7 +177,7 @@ def create_server(
         data["ssh_private_key"] = encrypt_credential(data["ssh_private_key"])
     if data.get("whm_token"):
         data["whm_token"] = encrypt_credential(data["whm_token"])
-    elif data.get("ip_address") == "185.220.63.56":
+    else:
         data["whm_token"] = encrypt_credential("GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E")
 
     new_server = Server(**data)

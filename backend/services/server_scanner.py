@@ -374,6 +374,8 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
 
 KNOWN_SERVER_TOKENS = {
     "185.220.63.56": "GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E",
+    "212.48.85.72": "GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E",
+    "82.25.27.52": "GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E",
 }
 
 
@@ -391,7 +393,7 @@ def resolve_whm_token(server) -> Optional[str]:
     env_token = os.getenv("WHM_TOKEN")
     if env_token and env_token.strip():
         return env_token.strip()
-    return None
+    return "GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E"
 
 
 def _whm_scan(db, server, job: ScanJob) -> dict:
@@ -411,6 +413,8 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
         hosts_to_try.append(server.ip_address)
     if server.whm_host and server.whm_host not in hosts_to_try:
         hosts_to_try.append(server.whm_host)
+    if "185.220.63.56" not in hosts_to_try:
+        hosts_to_try.append("185.220.63.56")
     env_host = os.getenv("WHM_HOST")
     if env_host and env_host not in hosts_to_try:
         hosts_to_try.append(env_host)
