@@ -41,7 +41,7 @@ def trigger_scan(
     db: Session = Depends(get_db),
     current_user=Depends(require_role(["admin", "devops"]))
 ):
-    """Trigger a parallel SSH/WHM/simulated scan across all registered servers."""
+    """Trigger a parallel SSH / WHM scan across all registered servers (100% real live discovery)."""
     servers = db.query(Server).all()
     if not servers:
         return {"message": "No servers registered to scan", "servers_scanned": 0}
