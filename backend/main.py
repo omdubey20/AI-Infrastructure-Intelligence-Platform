@@ -105,7 +105,7 @@ scheduler = BackgroundScheduler()
 
 
 def hourly_sync_job():
-    """Hourly background synchronization — rescans server metrics, detects duplicates, refreshes AI insights."""
+    """Hourly background synchronization — rescans server metrics, detects duplicates, refreshes AI insights & retrains ML pipeline."""
     logger.info("APScheduler: Running hourly synchronization job...")
     db = next(get_db())
     try:
@@ -121,6 +121,15 @@ def hourly_sync_job():
         discoveries = db.query(ProjectDiscovery).all()
         detect_duplicates(discoveries)
         generate_all_insights(db)
+
+        # Background automated ML model retraining with latest fleet telemetry
+        try:
+            from services.ml_pipeline import train_and_evaluate_pipeline
+            train_and_evaluate_pipeline(db=db)
+            logger.info("APScheduler: Automated ML pipeline retraining completed.")
+        except Exception as ml_sync_err:
+            logger.warning(f"APScheduler ML retraining notice: {ml_sync_err}")
+
         db.commit()
     except Exception as e:
         logger.error(f"APScheduler sync job error: {e}")
@@ -194,6 +203,19 @@ async def lifespan(app: FastAPI):
             migrate_db_schema()
             ensure_default_admin()
             logger.info("Database background initialization completed successfully.")
+
+            # Auto-train ML model on startup if missing so Model Status is immediately ACTIVE
+            from services.ml_pipeline import MODEL_PATH, train_and_evaluate_pipeline
+            if not os.path.exists(MODEL_PATH):
+                logger.info("Startup ML Auto-Trainer: Training initial ML model...")
+                db = next(get_db())
+                try:
+                    train_and_evaluate_pipeline(db=db)
+                    logger.info("Startup ML Auto-Trainer: ML model training completed successfully.")
+                except Exception as ml_init_err:
+                    logger.warning(f"Startup ML auto-training notice: {ml_init_err}")
+                finally:
+                    db.close()
         except Exception as db_init_err:
             logger.warning(f"Database initialization notice: {db_init_err}")
 
