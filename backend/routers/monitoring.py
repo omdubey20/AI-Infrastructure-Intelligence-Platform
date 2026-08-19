@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm import Session, joinedload
 from database import get_db
 from models import ProjectDiscovery, UptimeCheck, Server
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 
