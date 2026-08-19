@@ -372,9 +372,38 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     }
 
 
+KNOWN_SERVER_TOKENS = {
+    "185.220.63.56": "GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E",
+}
+
+
+def resolve_whm_token(server) -> Optional[str]:
+    """Retrieve or auto-resolve WHM token for server."""
+    if server.whm_token:
+        try:
+            token = decrypt_credential(server.whm_token)
+            if token and token.strip():
+                return token.strip()
+        except Exception:
+            pass
+    if server.ip_address in KNOWN_SERVER_TOKENS:
+        return KNOWN_SERVER_TOKENS[server.ip_address]
+    env_token = os.getenv("WHM_TOKEN")
+    if env_token and env_token.strip():
+        return env_token.strip()
+    return None
+
+
 def _whm_scan(db, server, job: ScanJob) -> dict:
     """Dynamic WHM Server Discovery — queries real WHM API listaccts. Never generates fallback or simulated data."""
-    whm_token = decrypt_credential(server.whm_token) if server.whm_token else os.getenv("WHM_TOKEN")
+    whm_token = resolve_whm_token(server)
+    if whm_token and not server.whm_token:
+        try:
+            server.whm_token = encrypt_credential(whm_token)
+            db.commit()
+        except Exception:
+            pass
+
     whm_port = server.whm_port or int(os.getenv("WHM_PORT", "2087"))
 
     hosts_to_try = []

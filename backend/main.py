@@ -216,6 +216,20 @@ async def lifespan(app: FastAPI):
                     logger.warning(f"Startup ML auto-training notice: {ml_init_err}")
                 finally:
                     db.close()
+
+            # Auto-scan any server that has 0 discovered projects so fresh live data is fetched immediately
+            db_scan = next(get_db())
+            try:
+                unscanned = db_scan.query(Server).all()
+                for s in unscanned:
+                    p_count = db_scan.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == s.id, ProjectDiscovery.is_live == True).count()
+                    if p_count == 0 or s.scan_status in ("never_scanned", "no_credentials", "error"):
+                        logger.info(f"Startup Scanner: Auto-scanning server {s.name} ({s.ip_address})...")
+                        scan_server_projects(db_scan, s)
+            except Exception as scan_init_err:
+                logger.warning(f"Startup auto-scan notice: {scan_init_err}")
+            finally:
+                db_scan.close()
         except Exception as db_init_err:
             logger.warning(f"Database initialization notice: {db_init_err}")
 
