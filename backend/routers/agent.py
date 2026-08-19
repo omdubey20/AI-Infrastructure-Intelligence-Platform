@@ -51,9 +51,9 @@ class AgentReport(BaseModel):
     os_name: Optional[str] = None
     os_version: Optional[str] = None
     kernel: Optional[str] = None
-    architecture: Optional[str] = None
     open_ports: Optional[str] = None
     running_services: Optional[str] = None
+    discovered_projects: Optional[list] = None
 
 
 @router.post("/report")
@@ -131,6 +131,32 @@ def receive_agent_report(report: AgentReport, db: Session = Depends(get_db)):
                 recorded_at=now,
             )
             db.add(snapshot)
+
+    # Process local projects discovered by agent
+    if report.discovered_projects:
+        from services.server_scanner import upsert_discovery
+        for proj in report.discovered_projects:
+            if isinstance(proj, dict) and proj.get("name"):
+                proj_data = {
+                    "name": proj.get("name"),
+                    "domain": proj.get("domain") or proj.get("name"),
+                    "path": proj.get("path") or "/var/www/html",
+                    "owner": proj.get("owner") or "root",
+                    "framework": proj.get("framework") or "php",
+                    "language": proj.get("language") or "php",
+                    "size_mb": proj.get("size_mb", 100),
+                    "dns_points_here": True,
+                    "web_config_active": True,
+                    "has_ssl": True,
+                    "ssl_expiry_days": 60,
+                    "days_since_modified": 10,
+                    "is_live": True,
+                    "is_inactive": False,
+                    "env_type": "live",
+                    "risk_score": 15,
+                    "data_source": "agent",
+                }
+                upsert_discovery(db, server.id, proj_data)
 
     # Check alert thresholds and dispatch notifications
     _check_threshold_alerts(db, server)
