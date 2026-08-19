@@ -27,7 +27,7 @@ FAILURE_THRESHOLD = 2
 
 
 def check_single_site(url: str) -> dict:
-    """Perform an HTTP GET check on a single URL. Returns check result dict."""
+    """Perform an HTTP GET check on a domain, trying HTTPS and HTTP fallbacks. Returns check result dict."""
     result = {
         "is_up": False,
         "http_status": None,
@@ -37,47 +37,60 @@ def check_single_site(url: str) -> dict:
         "ssl_expiry_days": None,
     }
 
-    try:
-        start = time.monotonic()
-        resp = requests.get(
-            url,
-            timeout=HTTP_TIMEOUT,
-            allow_redirects=True,
-            headers={"User-Agent": "InfraIntel-UptimeMonitor/1.0"},
-            verify=True,
-        )
-        elapsed_ms = int((time.monotonic() - start) * 1000)
+    clean_url = url.replace("https://", "").replace("http://", "").strip("/")
+    if not clean_url:
+        return result
 
-        result["http_status"] = resp.status_code
-        result["response_time_ms"] = elapsed_ms
-        result["is_up"] = 200 <= resp.status_code < 500  # 5xx = server error = down
-        result["ssl_valid"] = True  # If we got here with verify=True, SSL is valid
+    urls_to_try = [
+        f"https://{clean_url}",
+        f"http://{clean_url}",
+    ]
 
-    except requests.exceptions.SSLError as e:
-        result["error_message"] = f"SSL Error: {str(e)[:200]}"
-        result["ssl_valid"] = False
-        # Try without SSL verification to still get status
+    for attempt_url in urls_to_try:
         try:
             start = time.monotonic()
-            resp = requests.get(url, timeout=HTTP_TIMEOUT, allow_redirects=True, verify=False,
-                                headers={"User-Agent": "InfraIntel-UptimeMonitor/1.0"})
+            resp = requests.get(
+                attempt_url,
+                timeout=HTTP_TIMEOUT,
+                allow_redirects=True,
+                headers={"User-Agent": "InfraIntel-UptimeMonitor/1.0"},
+                verify=True,
+            )
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+
             result["http_status"] = resp.status_code
-            result["response_time_ms"] = int((time.monotonic() - start) * 1000)
+            result["response_time_ms"] = elapsed_ms
             result["is_up"] = 200 <= resp.status_code < 500
-        except Exception:
-            pass
+            if attempt_url.startswith("https://"):
+                result["ssl_valid"] = True
+            break
+        except requests.exceptions.SSLError as e:
+            result["ssl_valid"] = False
+            try:
+                start = time.monotonic()
+                resp = requests.get(
+                    attempt_url,
+                    timeout=HTTP_TIMEOUT,
+                    allow_redirects=True,
+                    headers={"User-Agent": "InfraIntel-UptimeMonitor/1.0"},
+                    verify=False,
+                )
+                result["http_status"] = resp.status_code
+                result["response_time_ms"] = int((time.monotonic() - start) * 1000)
+                result["is_up"] = 200 <= resp.status_code < 500
+                break
+            except Exception:
+                result["error_message"] = f"SSL Error: {str(e)[:150]}"
+        except requests.exceptions.ConnectionError as e:
+            result["error_message"] = f"Connection Error: {str(e)[:150]}"
+        except requests.exceptions.Timeout:
+            result["error_message"] = f"Timeout after {HTTP_TIMEOUT}s"
+        except Exception as e:
+            result["error_message"] = f"Error: {str(e)[:150]}"
 
-    except requests.exceptions.ConnectionError as e:
-        result["error_message"] = f"Connection Error: {str(e)[:200]}"
-    except requests.exceptions.Timeout:
-        result["error_message"] = f"Timeout after {HTTP_TIMEOUT}s"
-    except Exception as e:
-        result["error_message"] = f"Error: {str(e)[:200]}"
-
-    # Check SSL expiry independently
-    if url.startswith("https://") and result["is_up"]:
+    if result["is_up"] and clean_url:
         try:
-            hostname = url.split("//")[1].split("/")[0].split(":")[0]
+            hostname = clean_url.split("/")[0].split(":")[0]
             ctx = ssl.create_default_context()
             raw_sock = socket.socket()
             raw_sock.settimeout(3)

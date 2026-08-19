@@ -99,6 +99,26 @@ def get_monitoring_status(
     return result
 
 
+@router.post("/check-now")
+def trigger_uptime_checks_now(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(["admin", "devops"]))
+):
+    """Trigger immediate background execution of all website uptime checks."""
+    import threading
+    from services.uptime_monitor import run_uptime_checks
+
+    def _run_bg():
+        db_session = next(get_db())
+        try:
+            run_uptime_checks(db_session)
+        finally:
+            db_session.close()
+
+    threading.Thread(target=_run_bg, daemon=True).start()
+    return {"message": "Instant uptime health check launched across all monitored sites."}
+
+
 @router.get("/history/{site_id}")
 def get_uptime_history(
     site_id: int,
