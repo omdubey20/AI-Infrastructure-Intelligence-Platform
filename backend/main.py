@@ -93,22 +93,13 @@ def migrate_db_schema():
     logger.info("migrate_db_schema: complete")
 
 
-try:
-    Base.metadata.create_all(bind=engine, checkfirst=True)
-    logger.info("create_all done")
-    migrate_db_schema()
-    ensure_default_admin()
-    logger.info("Database initialization completed successfully.")
-except Exception as db_init_err:
-    logger.error(f"Database initialization error: {db_init_err}")
-
 # ========================
 # Rate Limiter
 # ========================
 limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 # ========================
-# Scheduler
+# Scheduler & Lifespan
 # ========================
 scheduler = BackgroundScheduler()
 
@@ -120,7 +111,6 @@ def hourly_sync_job():
     try:
         all_servers = db.query(Server).all()
         for server in all_servers:
-            # Skip agent-monitored servers (they report their own metrics)
             if server.agent_installed and server.data_source == "agent":
                 continue
             try:
@@ -153,7 +143,6 @@ def agent_heartbeat_check():
 
         for server in stale_servers:
             server.status = "agent_offline"
-            # Check if we already have an open alert
             existing = db.query(Alert).filter(
                 Alert.server_id == server.id,
                 Alert.type == "agent_offline",
@@ -170,7 +159,6 @@ def agent_heartbeat_check():
                     server_name=server.name,
                 )
 
-        # Auto-resolve if agent came back
         online_servers = db.query(Server).filter(
             Server.agent_installed == True,
             Server.agent_last_seen >= cutoff,
@@ -197,6 +185,15 @@ def agent_heartbeat_check():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Non-blocking DB schema verification on startup
+    try:
+        Base.metadata.create_all(bind=engine, checkfirst=True)
+        migrate_db_schema()
+        ensure_default_admin()
+        logger.info("Database initialization completed successfully.")
+    except Exception as db_init_err:
+        logger.error(f"Database initialization notice: {db_init_err}")
+
     scheduler.add_job(
         hourly_sync_job,
         "interval",
