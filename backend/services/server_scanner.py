@@ -15,7 +15,10 @@ from typing import Optional, Tuple
 
 import paramiko
 
-from models import Server, ProjectDiscovery, ScanJob, AIInsight, Project
+from models import (
+    Server, ProjectDiscovery, ScanJob, AIInsight, Project,
+    UptimeCheck, Alert, MalwareAlert, HealthSnapshot
+)
 from services.credential_encryption import decrypt_credential
 from services.risk_engine import calculate_server_risk
 
@@ -50,6 +53,10 @@ def _clear_server_discoveries(db, server_id: int):
         pids = [p[0] for p in old_discs]
         db.query(ProjectDiscovery).filter(ProjectDiscovery.duplicate_of_id.in_(pids)).update({ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
         db.query(AIInsight).filter(AIInsight.project_id.in_(pids)).delete(synchronize_session=False)
+        db.query(UptimeCheck).filter(UptimeCheck.site_id.in_(pids)).delete(synchronize_session=False)
+        db.query(Alert).filter(Alert.site_id.in_(pids)).update({Alert.site_id: None}, synchronize_session=False)
+        db.query(MalwareAlert).filter(MalwareAlert.site_id.in_(pids)).update({MalwareAlert.site_id: None}, synchronize_session=False)
+        db.query(HealthSnapshot).filter(HealthSnapshot.site_id.in_(pids)).delete(synchronize_session=False)
         db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server_id).delete(synchronize_session=False)
         db.commit()
 
@@ -365,24 +372,16 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     }
 
 
-def _clear_server_discoveries(db, server_id: int):
-    """Purge old discovery records for server before a fresh scan to prevent duplicate accumulation."""
-    old_discs = db.query(ProjectDiscovery.id).filter(ProjectDiscovery.server_id == server_id).all()
-    if old_discs:
-        db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server_id).delete()
-        db.commit()
-
-
 def _whm_scan(db, server, job: ScanJob) -> dict:
     """Dynamic WHM Server Discovery — queries real WHM API listaccts. Never generates fallback or simulated data."""
     whm_token = decrypt_credential(server.whm_token) if server.whm_token else os.getenv("WHM_TOKEN")
     whm_port = server.whm_port or int(os.getenv("WHM_PORT", "2087"))
 
     hosts_to_try = []
-    if server.whm_host:
-        hosts_to_try.append(server.whm_host)
-    if server.ip_address and server.ip_address not in hosts_to_try:
+    if server.ip_address:
         hosts_to_try.append(server.ip_address)
+    if server.whm_host and server.whm_host not in hosts_to_try:
+        hosts_to_try.append(server.whm_host)
     env_host = os.getenv("WHM_HOST")
     if env_host and env_host not in hosts_to_try:
         hosts_to_try.append(env_host)
