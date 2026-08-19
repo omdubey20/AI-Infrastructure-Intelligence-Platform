@@ -19,6 +19,32 @@ export default function Servers() {
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [actionMsg, setActionMsg] = useState(null);
+  const [agentModalServer, setAgentModalServer] = useState(null);
+  const [agentSetupData, setAgentSetupData] = useState(null);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleOpenAgentModal = async (s, e) => {
+    e.stopPropagation();
+    setAgentModalServer(s);
+    setAgentSetupData(null);
+    setAgentLoading(true);
+    setCopied(false);
+    try {
+      const res = await api.get(`/agent/setup-command/${s.id}`);
+      setAgentSetupData(res.data);
+    } catch (err) {
+      console.error("Failed to load agent setup command:", err);
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
+  const handleCopyCommand = (text) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
 
   const fetchServers = async () => {
     try {
@@ -201,6 +227,9 @@ export default function Servers() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "6px" }}>
+                        <button onClick={(e) => handleOpenAgentModal(s, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px", background: s.data_source === "agent" ? "rgba(74,222,128,0.15)" : "rgba(56,189,248,0.15)", color: s.data_source === "agent" ? "#4ade80" : "#38bdf8", border: s.data_source === "agent" ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(56,189,248,0.3)" }}>
+                          {s.data_source === "agent" ? "🟢 Agent Active" : "🔌 Connect Agent"}
+                        </button>
                         <button onClick={(e) => handleScanSingle(s.id, s.name, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px" }}>
                           ⚡ Scan
                         </button>
@@ -216,6 +245,65 @@ export default function Servers() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Agent Setup Modal */}
+      {agentModalServer && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1050 }}>
+          <div className="card" style={{ width: "100%", maxWidth: "620px", background: "#0d1524", border: "1px solid rgba(56,189,248,0.3)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <div>
+                <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 800, letterSpacing: "0.14em" }}>AGENT CONNECTION POINT</p>
+                <h3 style={{ fontSize: "18px", fontWeight: 800, color: "#f1f5f9", marginTop: "4px" }}>
+                  Connect Agent to {agentModalServer.name} ({agentModalServer.ip_address})
+                </h3>
+              </div>
+              <button onClick={() => setAgentModalServer(null)} style={{ background: "none", border: "none", color: "#94a3b8", fontSize: "18px", cursor: "pointer", fontWeight: 800 }}>✕</button>
+            </div>
+
+            {agentLoading ? (
+              <div style={{ color: "#94a3b8", padding: "20px 0" }}>Generating agent connection credentials...</div>
+            ) : agentSetupData ? (
+              <div>
+                <div style={{ background: "#080e1a", padding: "14px", borderRadius: "8px", border: "1px solid #1e293b", marginBottom: "16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <span style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>1-LINE TERMINAL INSTALL COMMAND (RUN ON SERVER AS ROOT)</span>
+                    <button onClick={() => handleCopyCommand(agentSetupData.install_command)} className="btn-secondary" style={{ padding: "4px 12px", fontSize: "11px", background: copied ? "#22c55e" : "#38bdf8", color: "#080e1a", fontWeight: 800 }}>
+                      {copied ? "✓ Copied!" : "📋 Copy Command"}
+                    </button>
+                  </div>
+                  <pre style={{ margin: 0, fontSize: "12px", background: "#030712", padding: "12px", borderRadius: "6px", color: "#38bdf8", wordBreak: "break-all", whiteSpace: "pre-wrap", fontFamily: "monospace", border: "1px solid #1e293b" }}>
+                    {agentSetupData.install_command}
+                  </pre>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
+                  <div style={{ background: "#09111d", padding: "12px", borderRadius: "8px" }}>
+                    <p style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>AGENT API KEY</p>
+                    <p style={{ fontSize: "12px", fontFamily: "monospace", color: "#f1f5f9", fontWeight: 800, marginTop: "4px" }}>{agentSetupData.api_key}</p>
+                  </div>
+                  <div style={{ background: "#09111d", padding: "12px", borderRadius: "8px" }}>
+                    <p style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>CONNECTION STATUS</p>
+                    <p style={{ fontSize: "12px", fontWeight: 800, color: agentSetupData.agent_installed ? "#4ade80" : "#fbbf24", marginTop: "4px" }}>
+                      {agentSetupData.agent_installed ? "🟢 Active & Reporting" : "🟡 Pending First Heartbeat"}
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: "12px", color: "#94a3b8", lineHeight: "1.6", background: "rgba(56,189,248,0.06)", padding: "12px", borderRadius: "8px", border: "1px solid rgba(56,189,248,0.2)" }}>
+                  <p style={{ fontWeight: 800, color: "#38bdf8", marginBottom: "4px" }}>💡 Installation Steps:</p>
+                  <ol style={{ margin: 0, paddingLeft: "18px" }}>
+                    <li>Copy the terminal command above.</li>
+                    <li>SSH into <code>{agentModalServer.ip_address}</code> or open cPanel Terminal as root.</li>
+                    <li>Paste and execute. The agent runs as a system daemon, auto-starts on boot, and reports CPU, RAM, Disk, Load, and Malware alerts every 60 seconds.</li>
+                  </ol>
+                </div>
+              </div>
+            ) : (
+              <div style={{ color: "#f87171" }}>Failed to generate setup command.</div>
+            )}
           </div>
         </div>
       )}

@@ -209,6 +209,36 @@ def generate_agent_key(
     return {"server_id": server_id, "api_key": api_key, "message": "Agent API key generated"}
 
 
+@router.get("/setup-command/{server_id}")
+def get_agent_setup_command(
+    server_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """Get or generate agent API key and 1-line installation command for a server."""
+    server = db.query(Server).filter(Server.id == server_id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    if not server.agent_api_key:
+        server.agent_api_key = f"infra_{secrets.token_hex(24)}"
+        db.commit()
+
+    base_url = str(request.base_url).rstrip("/")
+    install_command = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key={server.agent_api_key}"
+
+    return {
+        "server_id": server.id,
+        "server_name": server.name,
+        "api_key": server.agent_api_key,
+        "install_command": install_command,
+        "agent_installed": bool(server.agent_installed),
+        "agent_last_seen": server.agent_last_seen.isoformat() if server.agent_last_seen else None,
+        "status": server.status,
+    }
+
+
 @router.get("/install.sh")
 def get_install_script(request: Request):
     """Serve the agent installation script."""

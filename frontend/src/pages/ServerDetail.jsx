@@ -11,6 +11,8 @@ export default function ServerDetail() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [actionMsg, setActionMsg] = useState(null);
+  const [agentSetupData, setAgentSetupData] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const fetchServer = async () => {
     try {
@@ -23,9 +25,22 @@ export default function ServerDetail() {
     }
   };
 
+  const fetchAgentSetup = async () => {
+    try {
+      const res = await api.get(`/agent/setup-command/${id}`);
+      setAgentSetupData(res.data);
+    } catch (e) {
+      console.error("fetchAgentSetup error:", e);
+    }
+  };
+
   useEffect(() => {
     fetchServer();
-    const interval = setInterval(fetchServer, 5000);
+    fetchAgentSetup();
+    const interval = setInterval(() => {
+      fetchServer();
+      fetchAgentSetup();
+    }, 5000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -117,6 +132,43 @@ export default function ServerDetail() {
           </div>
         </div>
       </div>
+
+      {/* Agent Setup Card */}
+      {agentSetupData && (
+        <div className="card" style={{ marginBottom: "24px", border: "1px solid rgba(56,189,248,0.25)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "12px" }}>
+            <div>
+              <p style={{ fontSize: "11px", color: "#38bdf8", fontWeight: 800, letterSpacing: "0.12em" }}>AGENT CONNECTION POINT</p>
+              <h3 style={{ fontSize: "16px", fontWeight: 800, color: "#f1f5f9", marginTop: "2px" }}>
+                1-Line Terminal Install Command for Real-Time Telemetry & Alerts
+              </h3>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span className={agentSetupData.agent_installed ? "badge badge-green" : "badge badge-amber"}>
+                {agentSetupData.agent_installed ? "🟢 Agent Active" : "🟡 Agent Not Connected"}
+              </span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(agentSetupData.install_command);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2500);
+                }}
+                className="btn-primary"
+                style={{ fontSize: "12px", padding: "6px 14px" }}
+              >
+                {copied ? "✓ Copied Command!" : "📋 Copy Terminal Install Command"}
+              </button>
+            </div>
+          </div>
+
+          <pre style={{ margin: 0, fontSize: "12px", background: "#040914", padding: "14px", borderRadius: "8px", color: "#38bdf8", wordBreak: "break-all", whiteSpace: "pre-wrap", fontFamily: "monospace", border: "1px solid #1e293b" }}>
+            {agentSetupData.install_command}
+          </pre>
+          <p style={{ fontSize: "12px", color: "#64748b", marginTop: "10px" }}>
+            💡 SSH into <code>{server.ip_address}</code> or open cPanel Terminal as root and run the command above to start 60s CPU/RAM/Disk/Malware telemetry streaming.
+          </p>
+        </div>
+      )}
 
       {/* Hosted Projects Table */}
       <div className="card">
