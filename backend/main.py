@@ -291,7 +291,6 @@ def health():
 # ========================
 # Frontend SPA Static Mounting (Railway / Docker / Single Container)
 # ========================
-from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -301,26 +300,28 @@ static_build_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 @app.api_route("/", methods=["GET", "HEAD"])
 def root(request: Request):
     accept = request.headers.get("accept", "")
-    if "text/html" in accept and os.path.exists(static_build_dir):
+    if "text/html" in accept and static_build_dir and os.path.exists(static_build_dir):
         index_file = os.path.join(static_build_dir, "index.html")
         if os.path.exists(index_file):
             return FileResponse(index_file)
     return {"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"}
+
+
 if os.path.exists(static_build_dir):
     static_assets = os.path.join(static_build_dir, "static")
     if os.path.exists(static_assets):
         app.mount("/static", StaticFiles(directory=static_assets), name="static")
 
     @app.get("/{full_path:path}")
-    def serve_spa(full_path: str):
-        if not full_path:
-            return {"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"}
-        # Exclude API endpoints from SPA fallback
-        api_prefixes = ("auth", "servers", "projects", "stats", "discovery", "whm", "ml", "ai", "audit", "dashboard_spec", "health", "docs", "openapi.json", "monitoring", "alerts", "agent")
-        if any(full_path.startswith(prefix) for prefix in api_prefixes):
-            raise HTTPException(status_code=404, detail="API endpoint not found")
-        
+    def serve_spa(request: Request, full_path: str):
+        # 1. If static file exists directly (e.g. favicon.ico, manifest.json)
         file_path = os.path.join(static_build_dir, full_path)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
+        if full_path and os.path.exists(file_path) and os.path.isfile(file_path):
             return FileResponse(file_path)
-        return FileResponse(os.path.join(static_build_dir, "index.html"))
+        
+        # 2. For all client-side routes (/monitoring, /servers, /alerts, /projects, etc.) -> index.html
+        index_file = os.path.join(static_build_dir, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+
+        return {"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"}
