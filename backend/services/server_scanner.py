@@ -45,12 +45,21 @@ SKIP_PREFIXES = (
 
 
 def _clear_server_discoveries(db, server_id: int):
-    """Safely mark stale discovery records as non-live without wiping out UptimeCheck history."""
-    pass
+    """Purge old discovery records for server before a fresh scan to prevent duplicate accumulation."""
+    proj_rows = db.query(ProjectDiscovery.id).filter(ProjectDiscovery.server_id == server_id).all()
+    proj_ids = [p[0] for p in proj_rows]
+    if proj_ids:
+        db.query(ProjectDiscovery).filter(ProjectDiscovery.duplicate_of_id.in_(proj_ids)).update({ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
+        db.query(AIInsight).filter(AIInsight.project_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(UptimeCheck).filter(UptimeCheck.site_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(Alert).filter(Alert.site_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(MalwareAlert).filter(MalwareAlert.site_id.in_(proj_ids)).delete(synchronize_session=False)
+    db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server_id).delete(synchronize_session=False)
+    db.commit()
 
 
 def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, bool]:
-    """True database UPSERT for ProjectDiscovery — updates existing project in-place to preserve UptimeCheck history."""
+    """True database UPSERT for ProjectDiscovery — updates existing project in-place or adds new discovery."""
     now = datetime.utcnow()
     proj_name = data["name"]
     domain_val = data.get("domain") or proj_name
