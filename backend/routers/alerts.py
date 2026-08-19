@@ -169,3 +169,108 @@ def trigger_malware_scan(
     result = scan_server_malware(db, server)
 
     return result
+
+
+class AlertConfigSchema(BaseModel):
+    teams_webhook_url: Optional[str] = None
+    email_to: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = 587
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+
+
+@router.get("/config")
+def get_alert_config(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """Get current notification settings."""
+    from services.notification_service import _get_teams_webhook_url, _get_smtp_config
+    cfg = db.query(AlertConfig).first()
+    env_webhook = _get_teams_webhook_url(db)
+    env_smtp = _get_smtp_config(db)
+
+    return {
+        "teams_webhook_url": cfg.teams_webhook_url if (cfg and cfg.teams_webhook_url) else env_webhook or "",
+        "email_to": cfg.email_to if (cfg and cfg.email_to) else env_smtp.get("to", ""),
+        "smtp_host": cfg.smtp_host if (cfg and cfg.smtp_host) else env_smtp.get("host", ""),
+        "smtp_port": cfg.smtp_port if (cfg and cfg.smtp_port) else env_smtp.get("port", 587),
+        "smtp_user": cfg.smtp_user if (cfg and cfg.smtp_user) else env_smtp.get("user", ""),
+        "smtp_password": cfg.smtp_password if (cfg and cfg.smtp_password) else env_smtp.get("password", ""),
+        "teams_configured": bool(env_webhook),
+        "email_configured": bool(env_smtp.get("host") and env_smtp.get("user") and env_smtp.get("to")),
+    }
+
+
+@router.post("/config")
+def save_alert_config(
+    payload: AlertConfigSchema,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(["admin", "devops"]))
+):
+    """Save or update notification settings."""
+    cfg = db.query(AlertConfig).first()
+    if not cfg:
+        cfg = AlertConfig()
+        db.add(cfg)
+
+    if payload.teams_webhook_url is not None: cfg.teams_webhook_url = payload.teams_webhook_url.strip()
+    if payload.email_to is not None: cfg.email_to = payload.email_to.strip()
+    if payload.smtp_host is not None: cfg.smtp_host = payload.smtp_host.strip()
+    if payload.smtp_port is not None: cfg.smtp_port = payload.smtp_port
+    if payload.smtp_user is not None: cfg.smtp_user = payload.smtp_user.strip()
+    if payload.smtp_password is not None: cfg.smtp_password = payload.smtp_password.strip()
+
+    db.commit()
+    return {"message": "Notification configuration saved successfully!"}
+
+
+@router.post("/test-teams")
+def test_teams_webhook(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(["admin", "devops"]))
+):
+    """Send an instant test alert card to the configured Microsoft Teams / Slack webhook."""
+    from services.notification_service import send_teams_alert, _get_teams_webhook_url
+    webhook_url = _get_teams_webhook_url(db)
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="Microsoft Teams Webhook URL is not configured.")
+
+    dummy_alert = Alert(
+        server_id=None,
+        type="test_notification",
+        severity="info",
+        message="🚀 Test notification from AI Infrastructure Intelligence Platform. Your Teams webhook connection is working perfectly!",
+        created_at=datetime.utcnow(),
+    )
+    ok = send_teams_alert(dummy_alert, server_name="Production Control Center", db=db)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to deliver test message to Teams webhook. Verify the URL.")
+
+    return {"message": "✅ Test Teams webhook notification sent successfully!"}
+
+
+@router.post("/test-email")
+def test_email_alert(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(["admin", "devops"]))
+):
+    """Send an instant test alert email via SMTP."""
+    from services.notification_service import send_email_alert, _get_smtp_config
+    smtp_cfg = _get_smtp_config(db)
+    if not all([smtp_cfg.get("host"), smtp_cfg.get("user"), smtp_cfg.get("to")]):
+        raise HTTPException(status_code=400, detail="SMTP settings or recipient email is incomplete.")
+
+    dummy_alert = Alert(
+        server_id=None,
+        type="test_notification",
+        severity="info",
+        message="📧 Test notification from AI Infrastructure Intelligence Platform. Your SMTP email configuration is active!",
+        created_at=datetime.utcnow(),
+    )
+    ok = send_email_alert(dummy_alert, server_name="Production Control Center", db=db)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to send test email. Please check SMTP host, port, credentials and TLS settings.")
+
+    return {"message": f"✅ Test alert email sent to {smtp_cfg.get('to')}!"}

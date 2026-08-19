@@ -26,7 +26,19 @@ export default function Alerts() {
   const [filter, setFilter] = useState("open");
   const [typeFilter, setTypeFilter] = useState("all");
   const [actionMsg, setActionMsg] = useState(null);
-  const [tab, setTab] = useState("alerts"); // alerts | malware
+  const [tab, setTab] = useState("alerts"); // alerts | malware | settings
+  const [configForm, setConfigForm] = useState({
+    teams_webhook_url: "",
+    email_to: "",
+    smtp_host: "",
+    smtp_port: 587,
+    smtp_user: "",
+    smtp_password: ""
+  });
+  const [configStatus, setConfigStatus] = useState({ teams_configured: false, email_configured: false });
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [testingTeams, setTestingTeams] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
 
   const fetchAlerts = async () => {
     try {
@@ -55,9 +67,71 @@ export default function Alerts() {
     }
   };
 
+  const fetchConfig = async () => {
+    try {
+      const res = await api.get("/alerts/config");
+      setConfigForm({
+        teams_webhook_url: res.data.teams_webhook_url || "",
+        email_to: res.data.email_to || "",
+        smtp_host: res.data.smtp_host || "",
+        smtp_port: res.data.smtp_port || 587,
+        smtp_user: res.data.smtp_user || "",
+        smtp_password: res.data.smtp_password || ""
+      });
+      setConfigStatus({
+        teams_configured: res.data.teams_configured,
+        email_configured: res.data.email_configured
+      });
+    } catch (e) {
+      console.error("fetchConfig error:", e);
+    }
+  };
+
+  const handleSaveConfig = async (e) => {
+    e.preventDefault();
+    setSavingConfig(true);
+    setActionMsg(null);
+    try {
+      await api.post("/alerts/config", configForm);
+      setActionMsg({ ok: true, msg: "Notification settings saved successfully!" });
+      fetchConfig();
+    } catch (err) {
+      setActionMsg({ ok: false, msg: `Save failed: ${err.response?.data?.detail || err.message}` });
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleTestTeams = async () => {
+    setTestingTeams(true);
+    setActionMsg(null);
+    try {
+      const res = await api.post("/alerts/test-teams");
+      setActionMsg({ ok: true, msg: res.data.message });
+    } catch (err) {
+      setActionMsg({ ok: false, msg: err.response?.data?.detail || "Teams test failed." });
+    } finally {
+      setTestingTeams(false);
+    }
+  };
+
+  const handleTestEmail = async () => {
+    setTestingEmail(true);
+    setActionMsg(null);
+    try {
+      const res = await api.post("/alerts/test-email");
+      setActionMsg({ ok: true, msg: res.data.message });
+    } catch (err) {
+      setActionMsg({ ok: false, msg: err.response?.data?.detail || "Email test failed." });
+    } finally {
+      setTestingEmail(false);
+    }
+  };
+
   useEffect(() => {
     fetchAlerts();
     fetchMalware();
+    fetchConfig();
     const interval = setInterval(() => { fetchAlerts(); fetchMalware(); }, 10000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,14 +179,14 @@ export default function Alerts() {
 
       {/* Tab Switcher */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "20px" }}>
-        {["alerts", "malware"].map(t => (
+        {["alerts", "malware", "settings"].map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             padding: "8px 22px", borderRadius: "20px", border: "none", fontWeight: 700, fontSize: "12px",
             cursor: "pointer", textTransform: "capitalize",
             background: tab === t ? "#38bdf8" : "#111c2e",
             color: tab === t ? "#080e1a" : "#94a3b8",
           }}>
-            {t === "alerts" ? `🔔 System Alerts (${totalOpen})` : `🦠 Malware (${malware.length})`}
+            {t === "alerts" ? `🔔 System Alerts (${totalOpen})` : t === "malware" ? `🦠 Malware (${malware.length})` : "⚙️ Webhook & Email Settings"}
           </button>
         ))}
       </div>
@@ -257,6 +331,155 @@ export default function Alerts() {
             </div>
           )}
         </>
+      )}
+
+      {/* SETTINGS TAB */}
+      {tab === "settings" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+          {/* Webhook Card */}
+          <div className="card" style={{ border: "1px solid rgba(56,189,248,0.2)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h3 style={{ fontSize: "16px", fontWeight: 800, color: "#f1f5f9" }}>
+                💬 Microsoft Teams & Slack Webhook
+              </h3>
+              <span className={configStatus.teams_configured ? "badge badge-green" : "badge badge-amber"}>
+                {configStatus.teams_configured ? "🟢 Active" : "🟡 Not Configured"}
+              </span>
+            </div>
+            <p style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "16px" }}>
+              Receive instant Adaptive Cards on Microsoft Teams or Slack channels whenever downtime, CPU/RAM/Disk spikes, or malware are detected.
+            </p>
+
+            <form onSubmit={handleSaveConfig}>
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "6px" }}>
+                  INCOMING WEBHOOK URL
+                </label>
+                <input
+                  type="text"
+                  className="input-base"
+                  placeholder="https://outlook.office.com/webhook/... or Slack URL"
+                  value={configForm.teams_webhook_url}
+                  onChange={(e) => setConfigForm({ ...configForm, teams_webhook_url: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button type="submit" disabled={savingConfig} className="btn-primary" style={{ fontSize: "12px", padding: "8px 16px" }}>
+                  {savingConfig ? "Saving..." : "💾 Save Webhook"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTestTeams}
+                  disabled={testingTeams || !configForm.teams_webhook_url}
+                  className="btn-secondary"
+                  style={{ fontSize: "12px", padding: "8px 16px", background: "rgba(99,102,241,0.2)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.4)" }}
+                >
+                  {testingTeams ? "Sending..." : "🚀 Test Webhook Alert"}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Email / SMTP Card */}
+          <div className="card" style={{ border: "1px solid rgba(56,189,248,0.2)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h3 style={{ fontSize: "16px", fontWeight: 800, color: "#f1f5f9" }}>
+                📧 Email Alert Notifications (SMTP)
+              </h3>
+              <span className={configStatus.email_configured ? "badge badge-green" : "badge badge-amber"}>
+                {configStatus.email_configured ? "🟢 Active" : "🟡 Incomplete"}
+              </span>
+            </div>
+            <p style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "16px" }}>
+              Send HTML email alerts to your engineering team for critical infrastructure events.
+            </p>
+
+            <form onSubmit={handleSaveConfig}>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                  RECIPIENT EMAIL ADDRESS
+                </label>
+                <input
+                  type="email"
+                  className="input-base"
+                  placeholder="alerts@company.com"
+                  value={configForm.email_to}
+                  onChange={(e) => setConfigForm({ ...configForm, email_to: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "10px", marginBottom: "12px" }}>
+                <div>
+                  <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                    SMTP HOST
+                  </label>
+                  <input
+                    type="text"
+                    className="input-base"
+                    placeholder="smtp.gmail.com or mail.domain.com"
+                    value={configForm.smtp_host}
+                    onChange={(e) => setConfigForm({ ...configForm, smtp_host: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                    PORT
+                  </label>
+                  <input
+                    type="number"
+                    className="input-base"
+                    placeholder="587"
+                    value={configForm.smtp_port}
+                    onChange={(e) => setConfigForm({ ...configForm, smtp_port: parseInt(e.target.value) || 587 })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
+                <div>
+                  <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                    SMTP USERNAME
+                  </label>
+                  <input
+                    type="text"
+                    className="input-base"
+                    placeholder="user@example.com"
+                    value={configForm.smtp_user}
+                    onChange={(e) => setConfigForm({ ...configForm, smtp_user: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                    SMTP PASSWORD
+                  </label>
+                  <input
+                    type="password"
+                    className="input-base"
+                    placeholder="••••••••"
+                    value={configForm.smtp_password}
+                    onChange={(e) => setConfigForm({ ...configForm, smtp_password: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button type="submit" disabled={savingConfig} className="btn-primary" style={{ fontSize: "12px", padding: "8px 16px" }}>
+                  {savingConfig ? "Saving..." : "💾 Save Email Settings"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTestEmail}
+                  disabled={testingEmail || !configForm.email_to}
+                  className="btn-secondary"
+                  style={{ fontSize: "12px", padding: "8px 16px", background: "rgba(45,212,191,0.2)", color: "#2dd4bf", border: "1px solid rgba(45,212,191,0.4)" }}
+                >
+                  {testingEmail ? "Sending..." : "📧 Test Email Alert"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

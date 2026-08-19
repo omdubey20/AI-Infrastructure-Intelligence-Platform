@@ -385,3 +385,16 @@ class MalwareAlert(Base):
 
     server = relationship("Server")
     site = relationship("ProjectDiscovery")
+
+
+class AlertConfig(Base):
+    __tablename__ = "alert_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    teams_webhook_url = Column(String(500), nullable=True)
+    email_to = Column(String(255), nullable=True)
+    smtp_host = Column(String(255), nullable=True)
+    smtp_port = Column(Integer, default=587)
+    smtp_user = Column(String(255), nullable=True)
+    smtp_password = Column(String(255), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -15,7 +15,7 @@ from typing import Optional
 import requests
 from sqlalchemy.orm import Session
 
-from models import Alert
+from models import Alert, AlertConfig
 
 logger = logging.getLogger(__name__)
 
@@ -23,18 +23,37 @@ logger = logging.getLogger(__name__)
 ALERT_COOLDOWN_MINUTES = 15
 
 
-def _get_teams_webhook_url() -> Optional[str]:
+def _get_teams_webhook_url(db: Optional[Session] = None) -> Optional[str]:
+    if db:
+        try:
+            cfg = db.query(AlertConfig).first()
+            if cfg and cfg.teams_webhook_url:
+                return cfg.teams_webhook_url.strip()
+        except Exception:
+            pass
     return os.getenv("TEAMS_WEBHOOK_URL")
 
 
-def _get_smtp_config() -> dict:
-    return {
+def _get_smtp_config(db: Optional[Session] = None) -> dict:
+    config = {
         "host": os.getenv("SMTP_HOST", ""),
         "port": int(os.getenv("SMTP_PORT", "587")),
         "user": os.getenv("SMTP_USER", ""),
         "password": os.getenv("SMTP_PASSWORD", ""),
         "to": os.getenv("ALERT_EMAIL_TO", ""),
     }
+    if db:
+        try:
+            cfg = db.query(AlertConfig).first()
+            if cfg:
+                if cfg.smtp_host: config["host"] = cfg.smtp_host.strip()
+                if cfg.smtp_port: config["port"] = cfg.smtp_port
+                if cfg.smtp_user: config["user"] = cfg.smtp_user.strip()
+                if cfg.smtp_password: config["password"] = cfg.smtp_password.strip()
+                if cfg.email_to: config["to"] = cfg.email_to.strip()
+        except Exception:
+            pass
+    return config
 
 
 def _severity_color(severity: str) -> str:
@@ -53,9 +72,9 @@ def _severity_emoji(severity: str) -> str:
     }.get(severity, "⚪")
 
 
-def send_teams_alert(alert: Alert, server_name: str = "Unknown"):
-    """Send a rich Adaptive Card message to Microsoft Teams via Incoming Webhook."""
-    webhook_url = _get_teams_webhook_url()
+def send_teams_alert(alert: Alert, server_name: str = "Unknown", db: Optional[Session] = None):
+    """Send a rich Adaptive Card message to Microsoft Teams / Slack via Incoming Webhook."""
+    webhook_url = _get_teams_webhook_url(db)
     if not webhook_url:
         logger.debug("TEAMS_WEBHOOK_URL not configured, skipping Teams notification")
         return False
@@ -175,8 +194,8 @@ def dispatch_alert(db: Session, alert: Alert, server_name: str = "Unknown"):
         logger.debug(f"Alert cooldown active for {alert.type} on server {alert.server_id}, skipping notification")
         return
 
-    teams_ok = send_teams_alert(alert, server_name)
-    email_ok = send_email_alert(alert, server_name)
+    teams_ok = send_teams_alert(alert, server_name, db)
+    email_ok = send_email_alert(alert, server_name, db)
 
     now = datetime.utcnow()
     alert.notification_sent = True
