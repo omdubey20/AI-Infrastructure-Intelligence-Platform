@@ -64,10 +64,11 @@ def list_servers(
 ):
     servers = db.query(Server).all()
 
-    # Single bulk query for all project counts — eliminates N+1
+    # Single bulk query for all live project counts — eliminates N+1
     from sqlalchemy import func
     counts = dict(
         db.query(ProjectDiscovery.server_id, func.count(ProjectDiscovery.id))
+        .filter(ProjectDiscovery.is_live == True)
         .group_by(ProjectDiscovery.server_id)
         .all()
     )
@@ -105,7 +106,10 @@ def get_server(
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    discoveries = db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server.id).all()
+    discoveries = db.query(ProjectDiscovery).filter(
+        ProjectDiscovery.server_id == server.id,
+        ProjectDiscovery.is_live == True
+    ).all()
 
     return {
         "id": server.id,
