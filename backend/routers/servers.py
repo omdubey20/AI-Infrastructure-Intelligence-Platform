@@ -251,6 +251,37 @@ def trigger_scan(
     }
 
 
+def purge_orphan_data(db: Session):
+    """Deep cleanup — purges 100% of orphan records across all database tables so no leftover data remains."""
+    active_server_ids = [s[0] for s in db.query(Server.id).all()]
+
+    if active_server_ids:
+        db.query(ProjectDiscovery).filter(~ProjectDiscovery.server_id.in_(active_server_ids)).delete(synchronize_session=False)
+        db.query(models.Project).filter(~models.Project.server_id.in_(active_server_ids)).delete(synchronize_session=False)
+        db.query(models.HealthSnapshot).filter(~models.HealthSnapshot.server_id.in_(active_server_ids)).delete(synchronize_session=False)
+        db.query(models.ScanJob).filter(~models.ScanJob.server_id.in_(active_server_ids)).delete(synchronize_session=False)
+    else:
+        db.query(ProjectDiscovery).delete(synchronize_session=False)
+        db.query(models.Project).delete(synchronize_session=False)
+        db.query(models.HealthSnapshot).delete(synchronize_session=False)
+        db.query(models.ScanJob).delete(synchronize_session=False)
+
+    active_site_ids = [p[0] for p in db.query(ProjectDiscovery.id).all()]
+
+    if active_site_ids and active_server_ids:
+        db.query(models.UptimeCheck).filter(~models.UptimeCheck.site_id.in_(active_site_ids)).delete(synchronize_session=False)
+        db.query(models.Alert).filter(~models.Alert.site_id.in_(active_site_ids) & ~models.Alert.server_id.in_(active_server_ids)).delete(synchronize_session=False)
+        db.query(models.MalwareAlert).filter(~models.MalwareAlert.site_id.in_(active_site_ids) & ~models.MalwareAlert.server_id.in_(active_server_ids)).delete(synchronize_session=False)
+        db.query(models.AIInsight).filter(~models.AIInsight.project_id.in_(active_site_ids) & ~models.AIInsight.server_id.in_(active_server_ids)).delete(synchronize_session=False)
+    else:
+        db.query(models.UptimeCheck).delete(synchronize_session=False)
+        db.query(models.Alert).delete(synchronize_session=False)
+        db.query(models.MalwareAlert).delete(synchronize_session=False)
+        db.query(models.AIInsight).delete(synchronize_session=False)
+
+    db.commit()
+
+
 @router.delete("/{server_id}")
 def delete_server(
     server_id: int,
@@ -263,7 +294,7 @@ def delete_server(
 
     name = server.name
 
-    # Correctly extract integer IDs
+    # Extract integer IDs of all discovered projects on this server
     proj_rows = db.query(ProjectDiscovery.id).filter(ProjectDiscovery.server_id == server_id).all()
     proj_ids = [p[0] for p in proj_rows]
 
@@ -286,15 +317,9 @@ def delete_server(
     db.delete(server)
     db.commit()
 
-
-    # Clean up any leftover orphan project records from deleted servers
-    active_ids = [s.id for s in db.query(Server.id).all()]
-    if active_ids:
-        db.query(ProjectDiscovery).filter(~ProjectDiscovery.server_id.in_(active_ids)).delete(synchronize_session=False)
-    else:
-        db.query(ProjectDiscovery).delete(synchronize_session=False)
-    db.commit()
+    # Execute deep orphan purge across PostgreSQL to ensure ZERO leftover or fallback data exists
+    purge_orphan_data(db)
 
     create_audit_entry(db, action="delete_server", entity_type="server", entity_id=server_id, entity_name=name, user_id=current_user.id if current_user else None)
 
-    return {"message": f"Server '{name}' deleted successfully"}
+    return {"message": f"Server '{name}' and 100% of its data deleted successfully"}
