@@ -270,11 +270,16 @@ def delete_server(
     if proj_ids:
         db.query(ProjectDiscovery).filter(ProjectDiscovery.duplicate_of_id.in_(proj_ids)).update({ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
         db.query(models.AIInsight).filter(models.AIInsight.project_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(models.UptimeCheck).filter(models.UptimeCheck.site_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(models.Alert).filter(models.Alert.site_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(models.MalwareAlert).filter(models.MalwareAlert.site_id.in_(proj_ids)).delete(synchronize_session=False)
 
+    db.query(models.UptimeCheck).filter(models.UptimeCheck.server_id == server_id).delete(synchronize_session=False)
     db.query(models.AIInsight).filter(models.AIInsight.server_id == server_id).delete(synchronize_session=False)
     db.query(models.ScanJob).filter(models.ScanJob.server_id == server_id).delete(synchronize_session=False)
     db.query(models.HealthSnapshot).filter(models.HealthSnapshot.server_id == server_id).delete(synchronize_session=False)
     db.query(models.Alert).filter(models.Alert.server_id == server_id).delete(synchronize_session=False)
+    db.query(models.MalwareAlert).filter(models.MalwareAlert.server_id == server_id).delete(synchronize_session=False)
     db.query(models.Project).filter(models.Project.server_id == server_id).delete(synchronize_session=False)
     db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server_id).delete(synchronize_session=False)
 
