@@ -185,14 +185,19 @@ def agent_heartbeat_check():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Non-blocking DB schema verification on startup
-    try:
-        Base.metadata.create_all(bind=engine, checkfirst=True)
-        migrate_db_schema()
-        ensure_default_admin()
-        logger.info("Database initialization completed successfully.")
-    except Exception as db_init_err:
-        logger.error(f"Database initialization notice: {db_init_err}")
+    # Run DB init in a background thread so lifespan yields IMMEDIATELY
+    import threading
+
+    def _background_db_init():
+        try:
+            Base.metadata.create_all(bind=engine, checkfirst=True)
+            migrate_db_schema()
+            ensure_default_admin()
+            logger.info("Database background initialization completed successfully.")
+        except Exception as db_init_err:
+            logger.warning(f"Database initialization notice: {db_init_err}")
+
+    threading.Thread(target=_background_db_init, daemon=True).start()
 
     scheduler.add_job(
         hourly_sync_job,
