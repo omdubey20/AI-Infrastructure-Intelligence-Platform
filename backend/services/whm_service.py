@@ -16,45 +16,56 @@ logger = logging.getLogger(__name__)
 def _whm_get(host: str, token: str, port: int, endpoint: str, params: dict = None) -> dict:
     """
     Make authenticated WHM API GET request with enterprise resilience.
-    Uses browser-mimicking headers, session persistence, and cPHulk/cPanel challenge handling.
+    Uses browser-mimicking headers, session persistence, fallback protocol/ports, and cPHulk/cPanel challenge handling.
     """
-    url = f"https://{host}:{port}/json-api/{endpoint}"
     headers = {
         "Authorization": f"whm root:{token}",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
     }
-    
+
     session = requests.Session()
     session.verify = False
 
-    try:
-        r = session.get(url, headers=headers, params=params or {}, timeout=15)
-        if r.status_code == 200:
-            try:
-                return r.json()
-            except Exception:
-                # If WHM returned HTML security challenge/cPHulk redirect, attempt API v1 explicit JSON endpoint
-                alt_url = f"https://{host}:{port}/json-api/{endpoint}?api.version=1"
-                r2 = session.get(alt_url, headers=headers, timeout=15)
-                return r2.json()
-        elif r.status_code in (403, 401, 429):
-            try:
-                err_data = r.json()
-                msg = err_data.get("message") or err_data.get("metadata", {}).get("reason") or err_data.get("cpanelresult", {}).get("error")
-                if msg:
-                    logger.warning(f"WHM Security Block ({r.status_code}) on {host}: {msg}")
-                    return {"error": msg, "status_code": r.status_code, "is_security_block": True}
-            except Exception:
-                pass
-            return {"error": f"HTTP {r.status_code} Access Denied (Imunify360 / cPHulk / Token Auth Error)", "status_code": r.status_code, "is_security_block": True}
-        return {}
-    except Exception as e:
-        logger.warning(f"WHM API error {endpoint} on {host}: {e}")
-        return {}
+    targets = [
+        ("https", port or 2087),
+        ("http", 2086 if (port == 2087 or not port) else port),
+    ]
+
+    last_err = None
+    for proto, p in targets:
+        url = f"{proto}://{host}:{p}/json-api/{endpoint}"
+        try:
+            r = session.get(url, headers=headers, params=params or {}, timeout=10)
+            if r.status_code == 200:
+                try:
+                    res = r.json()
+                    if res:
+                        return res
+                except Exception:
+                    alt_url = f"{proto}://{host}:{p}/json-api/{endpoint}?api.version=1"
+                    r2 = session.get(alt_url, headers=headers, timeout=10)
+                    try:
+                        return r2.json()
+                    except Exception:
+                        pass
+            elif r.status_code in (403, 401, 429):
+                try:
+                    err_data = r.json()
+                    msg = err_data.get("message") or err_data.get("metadata", {}).get("reason") or err_data.get("cpanelresult", {}).get("error")
+                    if msg:
+                        return {"error": msg, "status_code": r.status_code, "is_security_block": True}
+                except Exception:
+                    pass
+                last_err = f"HTTP {r.status_code} Access Denied (Token/cPHulk Auth Error)"
+        except Exception as e:
+            last_err = str(e)
+            logger.debug(f"WHM API attempt failed on {proto}://{host}:{p}: {e}")
+
+    if last_err and "Access Denied" in str(last_err):
+        return {"error": last_err, "is_security_block": True}
+    return {}
 
 
 def get_whm_accounts(host: str = None, token: str = None, port: int = 2087) -> list:

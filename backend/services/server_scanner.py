@@ -34,7 +34,7 @@ LINUX_SCAN_PATHS = [
 ]
 
 SKIP_DIRS = {
-    "html", "cgi-bin", "lost+found", "", ".", "..", "node_modules",
+    "cgi-bin", "lost+found", "", ".", "..", "node_modules",
     ".git", ".svn", "vendor", "__pycache__", ".cache", "tmp"
 }
 
@@ -44,21 +44,18 @@ SKIP_PREFIXES = (
 )
 
 
-
-
 def _clear_server_discoveries(db, server_id: int):
     """Purge old discovery records for server before a fresh scan to prevent duplicate accumulation."""
-    old_discs = db.query(ProjectDiscovery.id).filter(ProjectDiscovery.server_id == server_id).all()
-    if old_discs:
-        pids = [p[0] for p in old_discs]
-        db.query(ProjectDiscovery).filter(ProjectDiscovery.duplicate_of_id.in_(pids)).update({ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
-        db.query(AIInsight).filter(AIInsight.project_id.in_(pids)).delete(synchronize_session=False)
-        db.query(UptimeCheck).filter(UptimeCheck.site_id.in_(pids)).delete(synchronize_session=False)
-        db.query(Alert).filter(Alert.site_id.in_(pids)).update({Alert.site_id: None}, synchronize_session=False)
-        db.query(MalwareAlert).filter(MalwareAlert.site_id.in_(pids)).update({MalwareAlert.site_id: None}, synchronize_session=False)
-        db.query(HealthSnapshot).filter(HealthSnapshot.site_id.in_(pids)).delete(synchronize_session=False)
-        db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server_id).delete(synchronize_session=False)
-        db.commit()
+    proj_rows = db.query(ProjectDiscovery.id).filter(ProjectDiscovery.server_id == server_id).all()
+    proj_ids = [p[0] for p in proj_rows]
+    if proj_ids:
+        db.query(ProjectDiscovery).filter(ProjectDiscovery.duplicate_of_id.in_(proj_ids)).update({ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
+        db.query(AIInsight).filter(AIInsight.project_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(UptimeCheck).filter(UptimeCheck.site_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(Alert).filter(Alert.site_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(MalwareAlert).filter(MalwareAlert.site_id.in_(proj_ids)).delete(synchronize_session=False)
+    db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server_id).delete(synchronize_session=False)
+    db.commit()
 
 
 def _run(client: paramiko.SSHClient, command: str, timeout: int = 5) -> str:

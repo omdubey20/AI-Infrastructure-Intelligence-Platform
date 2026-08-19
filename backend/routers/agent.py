@@ -483,6 +483,57 @@ def send_report(config, data):
         print(f"Send error: {{e}}")
         return None
 
+def discover_local_projects():
+    projs = []
+    seen = set()
+    userdomain_map = {{}}
+    if os.path.exists("/etc/userdomains"):
+        try:
+            with open("/etc/userdomains") as f:
+                for line in f:
+                    if ":" in line:
+                        dom, usr = line.split(":", 1)
+                        userdomain_map[usr.strip()] = dom.strip()
+        except Exception:
+            pass
+
+    if os.path.exists("/var/www/html"):
+        try:
+            if os.listdir("/var/www/html"):
+                hostname = "web-app"
+                try:
+                    hostname = subprocess.check_output(["hostname"], timeout=2).decode().strip()
+                except Exception:
+                    pass
+                dom = hostname if "." in hostname else f"{hostname}.local"
+                seen.add("/var/www/html")
+                projs.append({"name": dom, "domain": dom, "path": "/var/www/html", "owner": "www-data", "framework": "php"})
+        except Exception:
+            pass
+
+    if os.path.exists("/home"):
+        try:
+            for u in os.listdir("/home"):
+                html_path = os.path.join("/home", u, "public_html")
+                if os.path.isdir(html_path):
+                    dom = userdomain_map.get(u, u)
+                    if dom not in seen:
+                        seen.add(dom)
+                        projs.append({"name": dom, "domain": dom, "path": html_path, "owner": u, "framework": "php"})
+        except Exception:
+            pass
+
+    if os.path.exists("/var/www"):
+        try:
+            for d in os.listdir("/var/www"):
+                wpath = os.path.join("/var/www", d)
+                if os.path.isdir(wpath) and d not in ("html", "cgi-bin") and wpath not in seen:
+                    seen.add(wpath)
+                    projs.append({"name": d, "domain": d, "path": wpath, "owner": "www-data", "framework": "php"})
+        except Exception:
+            pass
+    return projs
+
 def main():
     config = load_config()
     print(f"Infra Intel Agent started. Reporting to {{config['api_url']}} every 60s")
@@ -505,6 +556,7 @@ def main():
                 "error_count": get_error_count(),
                 "ram_total_gb": ram_gb,
                 "swap_usage": get_swap_usage(),
+                "discovered_projects": discover_local_projects(),
                 **sys_info,
             }}
 
