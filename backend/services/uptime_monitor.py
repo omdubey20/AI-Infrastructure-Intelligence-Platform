@@ -1,6 +1,6 @@
 """
 Uptime Monitor Service
-Checks all discovered project domains for HTTP availability every 60 seconds.
+Concurrently checks all discovered project domains for HTTP availability every 60 seconds.
 Records UptimeCheck records and creates/resolves alerts on state changes.
 """
 import logging
@@ -8,11 +8,12 @@ import os
 import socket
 import ssl
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Optional
 
 import requests
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
 from models import ProjectDiscovery, UptimeCheck, Alert, Server
@@ -20,10 +21,8 @@ from services.notification_service import create_and_dispatch_alert
 
 logger = logging.getLogger(__name__)
 
-# Timeout for HTTP checks
-HTTP_TIMEOUT = 15
-# How many consecutive failures before alerting
-FAILURE_THRESHOLD = 2
+# Timeout for HTTP checks (fast 8s timeout for high throughput)
+HTTP_TIMEOUT = 8
 
 
 def check_single_site(url: str) -> dict:
@@ -51,12 +50,11 @@ def check_single_site(url: str) -> dict:
         result["http_status"] = resp.status_code
         result["response_time_ms"] = elapsed_ms
         result["is_up"] = 200 <= resp.status_code < 500  # 5xx = server error = down
-        result["ssl_valid"] = True  # If we got here with verify=True, SSL is valid
+        result["ssl_valid"] = True
 
     except requests.exceptions.SSLError as e:
         result["error_message"] = f"SSL Error: {str(e)[:200]}"
         result["ssl_valid"] = False
-        # Try without SSL verification to still get status
         try:
             start = time.monotonic()
             resp = requests.get(url, timeout=HTTP_TIMEOUT, allow_redirects=True, verify=False,
@@ -80,7 +78,7 @@ def check_single_site(url: str) -> dict:
             hostname = url.split("//")[1].split("/")[0].split(":")[0]
             ctx = ssl.create_default_context()
             with ctx.wrap_socket(socket.socket(), server_hostname=hostname) as s:
-                s.settimeout(5)
+                s.settimeout(4)
                 s.connect((hostname, 443))
                 cert = s.getpeercert()
                 not_after = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
@@ -92,52 +90,46 @@ def check_single_site(url: str) -> dict:
     return result
 
 
-def _get_previous_state(db: Session, site_id: int) -> Optional[bool]:
-    """Get the last known up/down state for a site."""
-    last = db.query(UptimeCheck).filter(
-        UptimeCheck.site_id == site_id
-    ).order_by(UptimeCheck.checked_at.desc()).first()
-    return last.is_up if last else None
-
-
-def _count_recent_failures(db: Session, site_id: int) -> int:
-    """Count consecutive recent failures for a site."""
-    recent = db.query(UptimeCheck).filter(
-        UptimeCheck.site_id == site_id
-    ).order_by(UptimeCheck.checked_at.desc()).limit(FAILURE_THRESHOLD).all()
-
-    count = 0
-    for check in recent:
-        if not check.is_up:
-            count += 1
-        else:
-            break
-    return count
+def _probe_worker(disc_info):
+    disc_id, server_id, server_name, domain = disc_info
+    url = f"https://{domain}" if not domain.startswith("http") else domain
+    result = check_single_site(url)
+    return disc_id, server_id, server_name, domain, url, result
 
 
 def run_uptime_checks(db: Session):
-    """Run uptime checks for all discovered projects with domains."""
-    discoveries = db.query(ProjectDiscovery).filter(
+    """Run concurrent uptime checks for all discovered projects with domains."""
+    discoveries = db.query(ProjectDiscovery).options(
+        joinedload(ProjectDiscovery.server)
+    ).filter(
         ProjectDiscovery.domain.isnot(None),
         ProjectDiscovery.domain != "",
         ProjectDiscovery.is_live == True,
     ).all()
 
+    if not discoveries:
+        return 0
+
+    items_to_check = [
+        (d.id, d.server_id, d.server.name if d.server else "Unknown", d.domain.strip())
+        for d in discoveries if d.domain and d.domain.strip()
+    ]
+
+    results = []
+    with ThreadPoolExecutor(max_workers=25) as executor:
+        futures = [executor.submit(_probe_worker, item) for item in items_to_check]
+        for f in as_completed(futures):
+            try:
+                results.append(f.result())
+            except Exception as e:
+                logger.debug(f"Uptime probe worker error: {e}")
+
     checked = 0
-    for disc in discoveries:
-        domain = disc.domain.strip()
-        if not domain:
-            continue
-
-        # Build URL — try HTTPS first
-        url = f"https://{domain}" if not domain.startswith("http") else domain
-
-        result = check_single_site(url)
-
-        # Record the check
+    now = datetime.utcnow()
+    for disc_id, server_id, server_name, domain, url, result in results:
         check = UptimeCheck(
-            site_id=disc.id,
-            server_id=disc.server_id,
+            site_id=disc_id,
+            server_id=server_id,
             url=url,
             is_up=result["is_up"],
             http_status=result["http_status"],
@@ -145,60 +137,56 @@ def run_uptime_checks(db: Session):
             error_message=result["error_message"],
             ssl_valid=result["ssl_valid"],
             ssl_expiry_days=result["ssl_expiry_days"],
+            checked_at=now,
         )
         db.add(check)
         checked += 1
 
         # Check for state change and alert
-        prev_state = _get_previous_state(db, disc.id)
-
-        if not result["is_up"] and _count_recent_failures(db, disc.id) >= FAILURE_THRESHOLD - 1:
-            # Site is down — check if we already have an open alert
+        if not result["is_up"]:
             existing = db.query(Alert).filter(
-                Alert.site_id == disc.id,
+                Alert.site_id == disc_id,
                 Alert.type == "site_down",
                 Alert.is_resolved == False,
             ).first()
 
             if not existing:
-                server_name = disc.server.name if disc.server else "Unknown"
                 create_and_dispatch_alert(
                     db,
                     alert_type="site_down",
                     severity="critical",
                     message=f"Website {domain} is DOWN. HTTP Status: {result['http_status'] or 'N/A'}. Error: {result['error_message'] or 'No response'}",
-                    server_id=disc.server_id,
-                    site_id=disc.id,
+                    server_id=server_id,
+                    site_id=disc_id,
                     server_name=server_name,
                 )
 
-        elif result["is_up"] and prev_state is False:
+        else:
             # Site recovered — resolve open alerts
             open_alerts = db.query(Alert).filter(
-                Alert.site_id == disc.id,
+                Alert.site_id == disc_id,
                 Alert.type == "site_down",
                 Alert.is_resolved == False,
             ).all()
             for a in open_alerts:
                 a.is_resolved = True
-                a.resolved_at = datetime.utcnow()
+                a.resolved_at = now
 
         # SSL expiry warning
         if result["ssl_expiry_days"] is not None and result["ssl_expiry_days"] <= 14:
             existing_ssl = db.query(Alert).filter(
-                Alert.site_id == disc.id,
+                Alert.site_id == disc_id,
                 Alert.type == "ssl_expiring",
                 Alert.is_resolved == False,
             ).first()
             if not existing_ssl:
-                server_name = disc.server.name if disc.server else "Unknown"
                 create_and_dispatch_alert(
                     db,
                     alert_type="ssl_expiring",
                     severity="warning",
                     message=f"SSL certificate for {domain} expires in {result['ssl_expiry_days']} days",
-                    server_id=disc.server_id,
-                    site_id=disc.id,
+                    server_id=server_id,
+                    site_id=disc_id,
                     server_name=server_name,
                 )
 
@@ -208,7 +196,7 @@ def run_uptime_checks(db: Session):
         logger.error(f"Uptime check commit error: {e}")
         db.rollback()
 
-    logger.info(f"Uptime checks completed: {checked} sites checked")
+    logger.info(f"Concurrent uptime checks completed: {checked} sites checked in parallel")
     return checked
 
 

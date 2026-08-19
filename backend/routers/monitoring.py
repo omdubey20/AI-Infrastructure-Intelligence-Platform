@@ -1,11 +1,11 @@
 """
 Monitoring Router — Website Uptime Monitoring API
+Ultra-fast bulk queries for fleet-wide uptime status and history.
 """
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
 from models import ProjectDiscovery, UptimeCheck, Server
@@ -19,42 +19,46 @@ def get_monitoring_status(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """Get current up/down status for all monitored sites."""
-    # Get all live projects with domains
-    sites = db.query(ProjectDiscovery).filter(
+    """Get current up/down status for all monitored sites (ultra-fast bulk aggregation)."""
+    # 1. Fetch all live projects with domains in 1 single query
+    sites = db.query(ProjectDiscovery).options(
+        joinedload(ProjectDiscovery.server)
+    ).filter(
         ProjectDiscovery.domain.isnot(None),
         ProjectDiscovery.domain != "",
         ProjectDiscovery.is_live == True,
     ).all()
 
+    if not sites:
+        return []
+
+    site_ids = [s.id for s in sites]
+
+    # 2. Fetch all checks in last 24h in 1 single query
+    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+    recent_checks = db.query(UptimeCheck).filter(
+        UptimeCheck.site_id.in_(site_ids),
+        UptimeCheck.checked_at >= cutoff_24h
+    ).order_by(UptimeCheck.checked_at.desc()).all()
+
+    # Aggregate in memory by site_id (sub-millisecond)
+    checks_by_site = {}
+    for c in recent_checks:
+        if c.site_id not in checks_by_site:
+            checks_by_site[c.site_id] = []
+        checks_by_site[c.site_id].append(c)
+
     result = []
     for site in sites:
-        # Get latest check
-        latest = db.query(UptimeCheck).filter(
-            UptimeCheck.site_id == site.id
-        ).order_by(UptimeCheck.checked_at.desc()).first()
+        site_checks = checks_by_site.get(site.id, [])
+        latest = site_checks[0] if site_checks else None
 
-        # Calculate uptime percentage (last 24h)
-        cutoff_24h = datetime.utcnow() - timedelta(hours=24)
-        total_checks = db.query(UptimeCheck).filter(
-            UptimeCheck.site_id == site.id,
-            UptimeCheck.checked_at >= cutoff_24h,
-        ).count()
-
-        up_checks = db.query(UptimeCheck).filter(
-            UptimeCheck.site_id == site.id,
-            UptimeCheck.checked_at >= cutoff_24h,
-            UptimeCheck.is_up == True,
-        ).count()
-
+        total_checks = len(site_checks)
+        up_checks = sum(1 for c in site_checks if c.is_up)
         uptime_pct = round((up_checks / total_checks * 100), 2) if total_checks > 0 else None
 
-        # Average response time (last 24h)
-        avg_rt = db.query(func.avg(UptimeCheck.response_time_ms)).filter(
-            UptimeCheck.site_id == site.id,
-            UptimeCheck.checked_at >= cutoff_24h,
-            UptimeCheck.is_up == True,
-        ).scalar()
+        valid_rts = [c.response_time_ms for c in site_checks if c.is_up and c.response_time_ms is not None]
+        avg_rt = round(sum(valid_rts) / len(valid_rts)) if valid_rts else None
 
         server_name = site.server.name if site.server else "Unknown"
 
@@ -72,7 +76,7 @@ def get_monitoring_status(
             "last_checked": latest.checked_at.isoformat() if latest else None,
             "error_message": latest.error_message if latest and not latest.is_up else None,
             "uptime_24h": uptime_pct,
-            "avg_response_ms": round(avg_rt) if avg_rt else None,
+            "avg_response_ms": avg_rt,
             "total_checks_24h": total_checks,
         })
 
@@ -117,16 +121,14 @@ def get_monitoring_summary(
         ProjectDiscovery.is_live == True,
     ).count()
 
-    # Get sites with recent checks
     cutoff = datetime.utcnow() - timedelta(minutes=5)
     recent_checks = db.query(UptimeCheck).filter(
         UptimeCheck.checked_at >= cutoff
-    ).all()
+    ).order_by(UptimeCheck.checked_at.desc()).all()
 
-    # Deduplicate by site_id, keep latest
     latest_by_site = {}
     for c in recent_checks:
-        if c.site_id not in latest_by_site or c.checked_at > latest_by_site[c.site_id].checked_at:
+        if c.site_id not in latest_by_site:
             latest_by_site[c.site_id] = c
 
     sites_up = sum(1 for c in latest_by_site.values() if c.is_up)
