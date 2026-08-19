@@ -104,9 +104,9 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 scheduler = BackgroundScheduler()
 
 
-def hourly_sync_job():
-    """Hourly background synchronization — rescans server metrics, detects duplicates, refreshes AI insights & retrains ML pipeline."""
-    logger.info("APScheduler: Running hourly synchronization job...")
+def fleet_background_sync_job():
+    """Background fleet synchronization (every 10 min) — rescans server metrics, detects duplicates, refreshes AI insights & retrains ML pipeline."""
+    logger.info("APScheduler: Running 10-minute fleet background sync job...")
     db = next(get_db())
     try:
         all_servers = db.query(Server).all()
@@ -136,7 +136,7 @@ def hourly_sync_job():
         db.rollback()
     finally:
         db.close()
-    logger.info("APScheduler: Hourly sync job completed.")
+    logger.info("APScheduler: Fleet background sync job completed.")
 
 
 def agent_heartbeat_check():
@@ -194,7 +194,7 @@ def agent_heartbeat_check():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Run DB init in a background thread so lifespan yields IMMEDIATELY
+    # Run DB init and server auto-scans in a background thread so lifespan yields IMMEDIATELY
     import threading
 
     def _background_db_init():
@@ -217,15 +217,13 @@ async def lifespan(app: FastAPI):
                 finally:
                     db.close()
 
-            # Auto-scan any server that has 0 discovered projects so fresh live data is fetched immediately
+            # Auto-scan all servers on startup so fresh live data is fetched immediately
             db_scan = next(get_db())
             try:
-                unscanned = db_scan.query(Server).all()
-                for s in unscanned:
-                    p_count = db_scan.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == s.id, ProjectDiscovery.is_live == True).count()
-                    if p_count == 0 or s.scan_status in ("never_scanned", "no_credentials", "error"):
-                        logger.info(f"Startup Scanner: Auto-scanning server {s.name} ({s.ip_address})...")
-                        scan_server_projects(db_scan, s)
+                all_srvs = db_scan.query(Server).all()
+                for s in all_srvs:
+                    logger.info(f"Startup Scanner: Auto-scanning server {s.name} ({s.ip_address})...")
+                    scan_server_projects(db_scan, s)
             except Exception as scan_init_err:
                 logger.warning(f"Startup auto-scan notice: {scan_init_err}")
             finally:
@@ -236,11 +234,11 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=_background_db_init, daemon=True).start()
 
     scheduler.add_job(
-        hourly_sync_job,
+        fleet_background_sync_job,
         "interval",
-        hours=1,
-        id="hourly_sync",
-        misfire_grace_time=300,
+        minutes=10,
+        id="fleet_sync",
+        misfire_grace_time=120,
         max_instances=1,
         coalesce=True,
     )
