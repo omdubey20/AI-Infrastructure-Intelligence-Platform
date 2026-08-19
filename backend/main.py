@@ -72,10 +72,10 @@ def ensure_default_admin():
         db.close()
 
 def migrate_db_schema():
-    """Ensure all required tables and columns exist in PostgreSQL/SQLite even if created with older schema."""
-    from sqlalchemy import text
+    """Ensure all required columns exist in PostgreSQL. Runs ALTER TABLE ADD COLUMN IF NOT EXISTS for each."""
+    from sqlalchemy import text, inspect
+
     columns_to_add = [
-        # Table, Column, Type
         ("servers", "agent_api_key", "VARCHAR"),
         ("servers", "agent_installed", "BOOLEAN DEFAULT FALSE"),
         ("servers", "agent_last_seen", "TIMESTAMP"),
@@ -84,7 +84,7 @@ def migrate_db_schema():
         ("servers", "last_full_scan_at", "TIMESTAMP"),
         ("servers", "scan_status", "VARCHAR DEFAULT 'never_scanned'"),
         ("servers", "scan_error", "TEXT"),
-        ("servers", "ai_risk_confidence", "FLOAT DEFAULT 0.0"),
+        ("servers", "ai_risk_confidence", "DOUBLE PRECISION DEFAULT 0.0"),
         ("servers", "ai_recommendation", "VARCHAR"),
         ("servers", "whm_host", "VARCHAR"),
         ("servers", "whm_token", "VARCHAR"),
@@ -100,45 +100,45 @@ def migrate_db_schema():
         ("alerts", "email_sent_at", "TIMESTAMP"),
         ("alerts", "site_id", "INTEGER"),
         ("alerts", "resolved_at", "TIMESTAMP"),
-        ("project_discoveries", "dns_points_here", "BOOLEAN DEFAULT FALSE"),
-        ("project_discoveries", "web_config_active", "BOOLEAN DEFAULT FALSE"),
-        ("project_discoveries", "has_ssl", "BOOLEAN DEFAULT FALSE"),
-        ("project_discoveries", "ssl_expiry_days", "INTEGER"),
-        ("project_discoveries", "is_live", "BOOLEAN DEFAULT FALSE"),
-        ("project_discoveries", "env_type", "VARCHAR DEFAULT 'unknown'"),
-        ("project_discoveries", "http_status", "INTEGER"),
-        ("project_discoveries", "is_duplicate", "BOOLEAN DEFAULT FALSE"),
-        ("project_discoveries", "duplicate_of_id", "INTEGER"),
-        ("project_discoveries", "duplicate_confidence", "INTEGER DEFAULT 0"),
-        ("project_discoveries", "duplicate_signals", "TEXT"),
-        ("project_discoveries", "is_inactive", "BOOLEAN DEFAULT FALSE"),
-        ("project_discoveries", "inactivity_signals", "TEXT"),
-        ("project_discoveries", "risk_score", "INTEGER DEFAULT 0"),
-        ("project_discoveries", "ai_confidence", "FLOAT DEFAULT 0.0"),
-        ("project_discoveries", "recommendation", "VARCHAR DEFAULT 'keep'"),
-        ("project_discoveries", "user_override", "VARCHAR"),
-        ("project_discoveries", "data_source", "VARCHAR DEFAULT 'estimated'"),
-        ("project_discoveries", "last_synced_at", "TIMESTAMP"),
     ]
 
+    # Check which tables exist first
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    logger.info(f"migrate_db_schema: existing tables = {existing_tables}")
+
+    added = 0
+    skipped = 0
     for table, col, col_type in columns_to_add:
+        if table not in existing_tables:
+            logger.info(f"migrate_db_schema: table '{table}' does not exist yet, skipping column '{col}'")
+            skipped += 1
+            continue
         try:
+            # Check if column already exists
+            existing_cols = {c["name"] for c in inspector.get_columns(table)}
+            if col in existing_cols:
+                skipped += 1
+                continue
+
             with engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
-        except Exception:
-            try:
-                with engine.begin() as conn:
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
-            except Exception:
-                pass
+                sql = f'ALTER TABLE "{table}" ADD COLUMN "{col}" {col_type}'
+                conn.execute(text(sql))
+                added += 1
+                logger.info(f"migrate_db_schema: added {table}.{col} ({col_type})")
+        except Exception as e:
+            logger.warning(f"migrate_db_schema: failed to add {table}.{col}: {e}")
+
+    logger.info(f"migrate_db_schema complete: {added} added, {skipped} skipped")
 
 
 try:
     Base.metadata.create_all(bind=engine, checkfirst=True)
     migrate_db_schema()
     ensure_default_admin()
+    logger.info("Database initialization completed successfully.")
 except Exception as db_init_err:
-    logger.warning(f"Database initialization notice on startup: {db_init_err}")
+    logger.error(f"Database initialization FAILED: {db_init_err}", exc_info=True)
 
 # ========================
 # Rate Limiter
