@@ -45,17 +45,66 @@ SKIP_PREFIXES = (
 
 
 def _clear_server_discoveries(db, server_id: int):
-    """Purge old discovery records for server before a fresh scan to prevent duplicate accumulation."""
-    proj_rows = db.query(ProjectDiscovery.id).filter(ProjectDiscovery.server_id == server_id).all()
-    proj_ids = [p[0] for p in proj_rows]
-    if proj_ids:
-        db.query(ProjectDiscovery).filter(ProjectDiscovery.duplicate_of_id.in_(proj_ids)).update({ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
-        db.query(AIInsight).filter(AIInsight.project_id.in_(proj_ids)).delete(synchronize_session=False)
-        db.query(UptimeCheck).filter(UptimeCheck.site_id.in_(proj_ids)).delete(synchronize_session=False)
-        db.query(Alert).filter(Alert.site_id.in_(proj_ids)).delete(synchronize_session=False)
-        db.query(MalwareAlert).filter(MalwareAlert.site_id.in_(proj_ids)).delete(synchronize_session=False)
-    db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server_id).delete(synchronize_session=False)
-    db.commit()
+    """Safely mark stale discovery records as non-live without wiping out UptimeCheck history."""
+    pass
+
+
+def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, bool]:
+    """True database UPSERT for ProjectDiscovery — updates existing project in-place to preserve UptimeCheck history."""
+    now = datetime.utcnow()
+    proj_name = data["name"]
+    domain_val = data.get("domain") or proj_name
+    owner_val = data.get("owner")
+    path_val = data.get("path", f"/home/{proj_name}/public_html")
+
+    existing = db.query(ProjectDiscovery).filter(
+        ProjectDiscovery.server_id == server_id,
+        (ProjectDiscovery.domain == domain_val) | (ProjectDiscovery.project_name == proj_name)
+    ).first()
+
+    if existing:
+        existing.project_name = proj_name
+        existing.project_path = path_val
+        existing.framework = data.get("framework", existing.framework or "php")
+        existing.language = data.get("language", existing.language or "php")
+        existing.owner = owner_val or existing.owner
+        existing.size_mb = data.get("size_mb", existing.size_mb or 100)
+        existing.domain = domain_val
+        existing.dns_points_here = data.get("dns_points_here", True)
+        existing.web_config_active = data.get("web_config_active", True)
+        existing.has_ssl = data.get("has_ssl", True)
+        existing.ssl_expiry_days = data.get("ssl_expiry_days", 60)
+        existing.is_live = data.get("is_live", True)
+        existing.is_inactive = False
+        existing.env_type = data.get("env_type", "live")
+        existing.risk_score = data.get("risk_score", 15)
+        existing.data_source = data.get("data_source", "whm")
+        existing.last_synced_at = now
+        return existing, False
+
+    discovery = ProjectDiscovery(
+        server_id=server_id,
+        project_name=proj_name,
+        project_path=path_val,
+        framework=data.get("framework", "php"),
+        language=data.get("language", "php"),
+        owner=owner_val,
+        size_mb=data.get("size_mb", 100),
+        domain=domain_val,
+        days_since_modified=data.get("days_since_modified", 10),
+        dns_points_here=data.get("dns_points_here", True),
+        web_config_active=data.get("web_config_active", True),
+        has_ssl=data.get("has_ssl", True),
+        ssl_expiry_days=data.get("ssl_expiry_days", 60),
+        is_live=data.get("is_live", True),
+        is_inactive=data.get("is_inactive", False),
+        env_type=data.get("env_type", "live"),
+        risk_score=data.get("risk_score", 15),
+        data_source=data.get("data_source", "whm"),
+        last_synced_at=now,
+    )
+    db.add(discovery)
+    return discovery, True
 
 
 def _run(client: paramiko.SSHClient, command: str, timeout: int = 5) -> str:
