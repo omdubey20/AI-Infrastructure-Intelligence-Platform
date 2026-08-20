@@ -194,8 +194,8 @@ def dispatch_alert(db: Session, alert: Alert, server_name: str = "Unknown"):
         logger.debug(f"Alert cooldown active for {alert.type} on server {alert.server_id}, skipping notification")
         return
 
-    teams_ok = send_teams_alert(alert, server_name, db)
-    email_ok = send_email_alert(alert, server_name, db)
+    teams_ok = send_teams_alert(alert, server_name)
+    email_ok = send_email_alert(alert, server_name)
 
     now = datetime.utcnow()
     alert.notification_sent = True
