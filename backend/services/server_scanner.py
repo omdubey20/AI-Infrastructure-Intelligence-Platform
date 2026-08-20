@@ -66,9 +66,10 @@ def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, 
     owner_val = data.get("owner")
     path_val = data.get("path", f"/home/{proj_name}/public_html")
 
+    from sqlalchemy import func
     existing = db.query(ProjectDiscovery).filter(
         ProjectDiscovery.server_id == server_id,
-        (ProjectDiscovery.domain == domain_val) | (ProjectDiscovery.project_name == proj_name)
+        (func.lower(ProjectDiscovery.domain) == domain_val.lower()) | (func.lower(ProjectDiscovery.project_name) == proj_name.lower())
     ).first()
 
     if existing:
