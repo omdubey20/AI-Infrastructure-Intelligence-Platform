@@ -370,6 +370,55 @@ def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:
         return {"ssh_connected": False, "projects_found": 0, "error": str(e)}
 
 
+def evaluate_server_threshold_alerts(db, server: Server):
+    """Evaluate server CPU, RAM, Disk thresholds and auto-create OR auto-resolve alerts as metrics change."""
+    checks = [
+        ("disk_high", server.disk_usage, 80, 90, "Disk usage"),
+        ("cpu_high", server.cpu_usage, 85, 95, "CPU usage"),
+        ("memory_high", server.memory_usage, 85, 95, "Memory usage"),
+    ]
+
+    from services.notification_service import create_and_dispatch_alert
+
+    for alert_type, value, warn_thresh, crit_thresh, label in checks:
+        if value is None:
+            continue
+
+        if value >= crit_thresh:
+            severity = "critical"
+        elif value >= warn_thresh:
+            severity = "warning"
+        else:
+            severity = None
+
+        if severity is None:
+            open_alerts = db.query(Alert).filter(
+                Alert.server_id == server.id,
+                Alert.type == alert_type,
+                Alert.is_resolved == False,
+            ).all()
+            for a in open_alerts:
+                a.is_resolved = True
+                a.resolved_at = datetime.utcnow()
+        else:
+            existing = db.query(Alert).filter(
+                Alert.server_id == server.id,
+                Alert.type == alert_type,
+                Alert.is_resolved == False,
+            ).first()
+
+            if not existing:
+                create_and_dispatch_alert(
+                    db,
+                    alert_type=alert_type,
+                    severity=severity,
+                    message=f"{label} on {server.name} is at {value}% ({severity}). Threshold: {warn_thresh}%",
+                    server_id=server.id,
+                    server_name=server.name,
+                )
+    db.commit()
+
+
 def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     """100% Dynamic SSH Server Discovery — inspects remote server files, system specs, services & web dirs."""
     sys_info = collect_system_info(client)
@@ -383,17 +432,7 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     server.scan_error = None
     server.last_scanned_at = datetime.utcnow()
     server.risk_score = calculate_server_risk(server)
-
-    # Auto-resolve any legacy agent_offline or server_down alerts since server is active
-    stale_alerts = db.query(Alert).filter(
-        Alert.server_id == server.id,
-        Alert.type.in_(["agent_offline", "server_down"]),
-        Alert.is_resolved == False,
-    ).all()
-    for a in stale_alerts:
-        a.is_resolved = True
-        a.resolved_at = datetime.utcnow()
-
+    evaluate_server_threshold_alerts(db, server)
     db.commit()
 
     raw_projects = discover_projects_via_ssh(client)
@@ -538,17 +577,7 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                 server.scan_error = None
                 server.last_scanned_at = datetime.utcnow()
                 server.risk_score = calculate_server_risk(server)
-
-                # Auto-resolve any legacy agent_offline or server_down alerts since WHM server is active
-                stale_alerts = db.query(Alert).filter(
-                    Alert.server_id == server.id,
-                    Alert.type.in_(["agent_offline", "server_down"]),
-                    Alert.is_resolved == False,
-                ).all()
-                for a in stale_alerts:
-                    a.is_resolved = True
-                    a.resolved_at = datetime.utcnow()
-
+                evaluate_server_threshold_alerts(db, server)
                 db.commit()
 
                 seen_users = set()

@@ -240,25 +240,6 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Startup uptime check notice: {uptime_init_err}")
             finally:
                 db_uptime.close()
-
-            # Auto-resolve stale agent_offline alerts for servers that are active
-            db_alerts = next(get_db())
-            try:
-                active_server_ids = [s.id for s in db_alerts.query(Server).filter(Server.status == "active").all()]
-                if active_server_ids:
-                    stale_alerts = db_alerts.query(Alert).filter(
-                        Alert.server_id.in_(active_server_ids),
-                        Alert.type.in_(["agent_offline", "server_down"]),
-                        Alert.is_resolved == False,
-                    ).all()
-                    for a in stale_alerts:
-                        a.is_resolved = True
-                        a.resolved_at = datetime.utcnow()
-                    db_alerts.commit()
-            except Exception as alert_clean_err:
-                logger.warning(f"Stale alert resolution notice: {alert_clean_err}")
-            finally:
-                db_alerts.close()
         except Exception as db_init_err:
             logger.warning(f"Database initialization notice: {db_init_err}")
 
@@ -267,9 +248,9 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         fleet_background_sync_job,
         "interval",
-        minutes=10,
+        hours=2,
         id="fleet_sync",
-        misfire_grace_time=120,
+        misfire_grace_time=300,
         max_instances=1,
         coalesce=True,
     )
