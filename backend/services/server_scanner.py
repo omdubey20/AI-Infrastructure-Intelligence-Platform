@@ -465,15 +465,10 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
     whm_port = server.whm_port or int(os.getenv("WHM_PORT", "2087"))
 
     hosts_to_try = []
-    if server.ip_address:
-        hosts_to_try.append(server.ip_address)
-    if server.whm_host and server.whm_host not in hosts_to_try:
+    if server.whm_host:
         hosts_to_try.append(server.whm_host)
-    if "185.220.63.56" not in hosts_to_try:
-        hosts_to_try.append("185.220.63.56")
-    env_host = os.getenv("WHM_HOST")
-    if env_host and env_host not in hosts_to_try:
-        hosts_to_try.append(env_host)
+    if server.ip_address and server.ip_address not in hosts_to_try:
+        hosts_to_try.append(server.ip_address)
 
     last_error = None
     for whm_host in hosts_to_try:
