@@ -56,6 +56,43 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
     # Alert counts
     open_alerts = db.query(Alert).filter(Alert.is_resolved == False).count()
 
+    # Uptime status metrics
+    live_site_ids = [d.id for d in discoveries if getattr(d, "is_live", False)]
+    uptime_monitors = len(live_site_ids)
+    uptime_up = 0
+    uptime_down = 0
+    uptime_pending = 0
+
+    if live_site_ids:
+        from models import UptimeCheck
+        from sqlalchemy import func
+
+        latest_subq = (
+            db.query(
+                UptimeCheck.site_id,
+                func.max(UptimeCheck.id).label("max_id")
+            )
+            .filter(UptimeCheck.site_id.in_(live_site_ids))
+            .group_by(UptimeCheck.site_id)
+            .subquery()
+        )
+
+        latest_checks = (
+            db.query(UptimeCheck)
+            .join(latest_subq, UptimeCheck.id == latest_subq.c.max_id)
+            .all()
+        )
+
+        checked_site_ids = set()
+        for check in latest_checks:
+            checked_site_ids.add(check.site_id)
+            if check.is_up:
+                uptime_up += 1
+            else:
+                uptime_down += 1
+
+        uptime_pending = len(live_site_ids) - len(checked_site_ids)
+
     server_breakdown = {}
     for d in discoveries:
         sid = d.server_id
@@ -69,6 +106,10 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
         "live_projects":      live_projects,
         "duplicate_projects": duplicate_projects,
         "open_alerts":        open_alerts,
+        "uptime_monitors":    uptime_monitors,
+        "uptime_up":          uptime_up,
+        "uptime_down":        uptime_down,
+        "uptime_pending":     uptime_pending,
         "healthy_servers":    healthy_servers,
         "warning_servers":    warning_servers,
         "critical_servers":   critical_servers,

@@ -8,7 +8,7 @@ const THEMES = {
   teal:   { accent: "#2DD4BF", bg: "rgba(45,212,191,0.07)",  border: "rgba(45,212,191,0.18)"  },
 };
 
-export default function StatCard({ title, value, icon, color = "blue", subtitle }) {
+export default function StatCard({ title, value, icon, color = "blue", subtitle, extra }) {
   const t = THEMES[color] || THEMES.blue;
   return (
     <div className="animate-fadein" style={{
@@ -30,12 +30,19 @@ export default function StatCard({ title, value, icon, color = "blue", subtitle 
             justifyContent: "center", fontSize: "15px" }}>{icon}</div>
         )}
       </div>
-      <p style={{ fontSize: "32px", fontWeight: 800, color: t.accent, lineHeight: 1, marginBottom: subtitle ? "6px" : 0 }}>
-        {value ?? "—"}
-      </p>
-      {subtitle && (
-        <p style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>{subtitle}</p>
-      )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+        <div>
+          <p style={{ fontSize: "32px", fontWeight: 800, color: t.accent, lineHeight: 1, marginBottom: subtitle ? "6px" : 0 }}>
+            {value ?? "—"}
+          </p>
+          {subtitle && (
+            <p style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>{subtitle}</p>
+          )}
+        </div>
+        {extra && (
+          <div style={{ marginLeft: "12px" }}>{extra}</div>
+        )}
+      </div>
     </div>
   );
 }
