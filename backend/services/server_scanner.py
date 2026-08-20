@@ -114,6 +114,7 @@ def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, 
         last_synced_at=now,
     )
     db.add(discovery)
+    db.flush()
     return discovery, True
 
 
