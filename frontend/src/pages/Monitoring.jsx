@@ -30,7 +30,7 @@ export default function Monitoring() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 15000);
+    const interval = setInterval(fetchStatus, 300000);
     return () => clearInterval(interval);
   }, []);
 

@@ -132,7 +132,7 @@ export default function Alerts() {
     fetchAlerts();
     fetchMalware();
     fetchConfig();
-    const interval = setInterval(() => { fetchAlerts(); fetchMalware(); }, 10000);
+    const interval = setInterval(() => { fetchAlerts(); fetchMalware(); }, 300000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, typeFilter]);

@@ -257,9 +257,9 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         uptime_check_job,
         "interval",
-        seconds=60,
+        minutes=5,
         id="uptime_checks",
-        misfire_grace_time=30,
+        misfire_grace_time=120,
         max_instances=1,
         coalesce=True,
     )
