@@ -183,8 +183,13 @@ export default function Monitoring() {
                 </div>
 
                 {site.error_message && (
-                  <div style={{ marginTop: "6px", fontSize: "11px", color: "#f87171", background: "rgba(248,113,113,0.08)", padding: "4px 8px", borderRadius: "4px" }}>
-                    {site.error_message}
+                  <div style={{
+                    marginTop: "6px", fontSize: "11px", fontWeight: 600,
+                    color: site.error_message.includes("Took long") ? "#f59e0b" : "#f87171",
+                    background: site.error_message.includes("Took long") ? "rgba(245,158,11,0.12)" : "rgba(248,113,113,0.12)",
+                    padding: "4px 8px", borderRadius: "4px", display: "inline-block"
+                  }}>
+                    {site.error_message.includes("Took long") ? `⚠️ ${site.error_message}` : `🔴 ${site.error_message}`}
                   </div>
                 )}
               </div>

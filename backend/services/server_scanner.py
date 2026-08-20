@@ -342,8 +342,6 @@ def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:
         else:
             result = _whm_scan(db, server, job)
 
-        _check_server_resource_alerts(db, server)
-
         duration = time.time() - start_time
         job.finished_at = datetime.utcnow()
         job.duration_seconds = round(duration, 1)
@@ -608,59 +606,3 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
         "error": target_srv.scan_error,
         "data_source": "none",
     }
-
-
-def _check_server_resource_alerts(db, server):
-    """Automatically check and dispatch/resolve CPU, RAM, and Disk alerts for a server after scan."""
-    try:
-        from services.notification_service import create_and_dispatch_alert
-        server_name = server.name or server.ip_address
-
-        # 1. CPU Check
-        if (server.cpu_usage or 0) >= 85:
-            create_and_dispatch_alert(
-                db=db,
-                alert_type="high_cpu",
-                severity="critical" if (server.cpu_usage or 0) >= 95 else "warning",
-                message=f"High CPU utilization on {server_name}: {server.cpu_usage}% (Threshold: 85%)",
-                server_id=server.id,
-            )
-        else:
-            open_cpu = db.query(Alert).filter(Alert.server_id == server.id, Alert.type == "high_cpu", Alert.is_resolved == False).all()
-            for a in open_cpu:
-                a.is_resolved = True
-                a.resolved_at = datetime.utcnow()
-
-        # 2. Memory Check
-        if (server.memory_usage or 0) >= 85:
-            create_and_dispatch_alert(
-                db=db,
-                alert_type="high_memory",
-                severity="critical" if (server.memory_usage or 0) >= 95 else "warning",
-                message=f"High Memory utilization on {server_name}: {server.memory_usage}% (Threshold: 85%)",
-                server_id=server.id,
-            )
-        else:
-            open_mem = db.query(Alert).filter(Alert.server_id == server.id, Alert.type == "high_memory", Alert.is_resolved == False).all()
-            for a in open_mem:
-                a.is_resolved = True
-                a.resolved_at = datetime.utcnow()
-
-        # 3. Disk Check
-        if (server.disk_usage or 0) >= 85:
-            create_and_dispatch_alert(
-                db=db,
-                alert_type="high_disk",
-                severity="critical" if (server.disk_usage or 0) >= 95 else "warning",
-                message=f"High Disk utilization on {server_name}: {server.disk_usage}% (Threshold: 85%)",
-                server_id=server.id,
-            )
-        else:
-            open_disk = db.query(Alert).filter(Alert.server_id == server.id, Alert.type == "high_disk", Alert.is_resolved == False).all()
-            for a in open_disk:
-                a.is_resolved = True
-                a.resolved_at = datetime.utcnow()
-
-        db.commit()
-    except Exception as e:
-        logger.warning(f"Error checking resource alerts for server {server.id}: {e}")

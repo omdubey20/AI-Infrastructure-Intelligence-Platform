@@ -79,16 +79,17 @@ def check_single_site(url: str) -> dict:
                 result["response_time_ms"] = int((time.monotonic() - start) * 1000)
                 result["is_up"] = 200 <= resp.status_code < 500
                 break
-            except requests.exceptions.Timeout:
-                result["error_message"] = f"Site took too long to load (timed out after {HTTP_TIMEOUT}s)"
             except Exception:
                 result["error_message"] = f"SSL Error: {str(e)[:150]}"
-        except requests.exceptions.Timeout:
-            result["error_message"] = f"Site took too long to load (timed out after {HTTP_TIMEOUT}s)"
         except requests.exceptions.ConnectionError as e:
-            result["error_message"] = f"Connection Error: unreachable host ({str(e)[:100]})"
+            result["error_message"] = f"Connection Error: {str(e)[:150]}"
+        except requests.exceptions.Timeout:
+            result["error_message"] = f"Timed out after {HTTP_TIMEOUT}s"
         except Exception as e:
             result["error_message"] = f"Error: {str(e)[:150]}"
+
+    if result["is_up"] and result.get("response_time_ms") and result["response_time_ms"] >= 5000:
+        result["error_message"] = f"Took long to load ({round(result['response_time_ms'] / 1000, 1)}s)"
 
     if result["is_up"] and clean_url:
         try:
