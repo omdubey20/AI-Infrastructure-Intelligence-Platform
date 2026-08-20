@@ -84,12 +84,9 @@ def check_single_site(url: str) -> dict:
         except requests.exceptions.ConnectionError as e:
             result["error_message"] = f"Connection Error: {str(e)[:150]}"
         except requests.exceptions.Timeout:
-            result["error_message"] = f"Timed out after {HTTP_TIMEOUT}s"
+            result["error_message"] = f"Timeout after {HTTP_TIMEOUT}s"
         except Exception as e:
             result["error_message"] = f"Error: {str(e)[:150]}"
-
-    if result["is_up"] and result.get("response_time_ms") and result["response_time_ms"] >= 5000:
-        result["error_message"] = f"Took long to load ({round(result['response_time_ms'] / 1000, 1)}s)"
 
     if result["is_up"] and clean_url:
         try:
