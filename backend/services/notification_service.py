@@ -114,9 +114,9 @@ def send_teams_alert(alert: Alert, server_name: str = "Unknown", db: Optional[Se
         return False
 
 
-def send_email_alert(alert: Alert, server_name: str = "Unknown"):
+def send_email_alert(alert: Alert, server_name: str = "Unknown", db: Optional[Session] = None):
     """Send an HTML-formatted alert email via SMTP."""
-    config = _get_smtp_config()
+    config = _get_smtp_config(db)
     if not all([config["host"], config["user"], config["password"], config["to"]]):
         logger.debug("SMTP not configured, skipping email notification")
         return False
@@ -194,8 +194,8 @@ def dispatch_alert(db: Session, alert: Alert, server_name: str = "Unknown"):
         logger.debug(f"Alert cooldown active for {alert.type} on server {alert.server_id}, skipping notification")
         return
 
-    teams_ok = send_teams_alert(alert, server_name)
-    email_ok = send_email_alert(alert, server_name)
+    teams_ok = send_teams_alert(alert, server_name, db)
+    email_ok = send_email_alert(alert, server_name, db)
 
     now = datetime.utcnow()
     alert.notification_sent = True

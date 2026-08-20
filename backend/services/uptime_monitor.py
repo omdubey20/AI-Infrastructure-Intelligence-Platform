@@ -196,17 +196,10 @@ def run_uptime_checks(db: Session):
         db.add(check)
         checked += 1
 
-        # State change & auto-resolve logic
-        if result["is_up"]:
-            open_alerts = db.query(Alert).filter(
-                Alert.site_id == disc_id,
-                Alert.type == "site_down",
-                Alert.is_resolved == False,
-            ).all()
-            for a in open_alerts:
-                a.is_resolved = True
-                a.resolved_at = datetime.utcnow()
-        elif not result["is_up"] and _count_recent_failures(db, disc_id) >= FAILURE_THRESHOLD - 1:
+        # Check for state change and alert
+        prev_state = _get_previous_state(db, disc_id)
+
+        if not result["is_up"] and _count_recent_failures(db, disc_id) >= FAILURE_THRESHOLD - 1:
             existing = db.query(Alert).filter(
                 Alert.site_id == disc_id,
                 Alert.type == "site_down",
@@ -224,32 +217,32 @@ def run_uptime_checks(db: Session):
                     server_name=server_name,
                 )
 
-        if result["ssl_expiry_days"] is not None:
-            if result["ssl_expiry_days"] <= 14:
-                existing_ssl = db.query(Alert).filter(
-                    Alert.site_id == disc_id,
-                    Alert.type == "ssl_expiring",
-                    Alert.is_resolved == False,
-                ).first()
-                if not existing_ssl:
-                    create_and_dispatch_alert(
-                        db,
-                        alert_type="ssl_expiring",
-                        severity="warning",
-                        message=f"SSL certificate for {domain} expires in {result['ssl_expiry_days']} days",
-                        server_id=server_id,
-                        site_id=disc_id,
-                        server_name=server_name,
-                    )
-            else:
-                open_ssl = db.query(Alert).filter(
-                    Alert.site_id == disc_id,
-                    Alert.type == "ssl_expiring",
-                    Alert.is_resolved == False,
-                ).all()
-                for a in open_ssl:
-                    a.is_resolved = True
-                    a.resolved_at = datetime.utcnow()
+        elif result["is_up"] and prev_state is False:
+            open_alerts = db.query(Alert).filter(
+                Alert.site_id == disc_id,
+                Alert.type == "site_down",
+                Alert.is_resolved == False,
+            ).all()
+            for a in open_alerts:
+                a.is_resolved = True
+                a.resolved_at = datetime.utcnow()
+
+        if result["ssl_expiry_days"] is not None and result["ssl_expiry_days"] <= 14:
+            existing_ssl = db.query(Alert).filter(
+                Alert.site_id == disc_id,
+                Alert.type == "ssl_expiring",
+                Alert.is_resolved == False,
+            ).first()
+            if not existing_ssl:
+                create_and_dispatch_alert(
+                    db,
+                    alert_type="ssl_expiring",
+                    severity="warning",
+                    message=f"SSL certificate for {domain} expires in {result['ssl_expiry_days']} days",
+                    server_id=server_id,
+                    site_id=disc_id,
+                    server_name=server_name,
+                )
 
     try:
         db.commit()

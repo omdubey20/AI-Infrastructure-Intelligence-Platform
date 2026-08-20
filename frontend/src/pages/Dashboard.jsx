@@ -16,6 +16,8 @@ export default function Dashboard() {
   const [bannerMsg, setBannerMsg] = useState(null);
   const [insights, setInsights] = useState([]);
   const [alertCount, setAlertCount] = useState(0);
+  const [monitorCount, setMonitorCount] = useState(0);
+
   const [stats, setStats] = useState({
     total_servers: 0,
     total_projects: 0,
@@ -27,21 +29,10 @@ export default function Dashboard() {
     top_risk_servers: [],
   });
 
-  const [monitorStats, setMonitorStats] = useState({ total: 0, up: 0, down: 0 });
-
   const fetchStats = async () => {
     try {
       const sRes = await api.get("/stats/dashboard");
-      if (sRes?.data) {
-        setStats(sRes.data);
-        if (sRes.data.uptime_monitors !== undefined) {
-          setMonitorStats({
-            total: sRes.data.uptime_monitors || 0,
-            up: sRes.data.uptime_up || 0,
-            down: sRes.data.uptime_down || 0,
-          });
-        }
-      }
+      if (sRes?.data) setStats(sRes.data);
     } catch (e) {
       console.error("Failed to fetch dashboard stats:", e);
     }
@@ -60,13 +51,7 @@ export default function Dashboard() {
 
     try {
       const mRes = await api.get("/monitoring/status");
-      if (Array.isArray(mRes?.data)) {
-        const data = mRes.data;
-        const total = data.length;
-        const up = data.filter((s) => s.is_up === true).length;
-        const down = data.filter((s) => s.is_up === false).length;
-        setMonitorStats({ total, up, down });
-      }
+      if (Array.isArray(mRes?.data)) setMonitorCount(mRes.data.length);
     } catch { /* monitoring endpoint may not exist yet */ }
   };
 
@@ -170,41 +155,7 @@ export default function Dashboard() {
           <StatCard title="Duplicate Copies" value={stats.duplicate_projects} icon="👯" color="amber" subtitle="Wasting storage" />
         </div>
         <div onClick={() => navigate("/monitoring")} style={{ cursor: "pointer" }}>
-          <StatCard
-            title="Uptime Monitors"
-            value={monitorStats.total}
-            icon="📡"
-            color="green"
-            subtitle="Website checks"
-            extra={
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
-                <span style={{
-                  fontSize: "11px",
-                  fontWeight: 800,
-                  color: "#4ade80",
-                  background: "rgba(74, 222, 128, 0.15)",
-                  border: "1px solid rgba(74, 222, 128, 0.3)",
-                  padding: "2px 7px",
-                  borderRadius: "6px",
-                  whiteSpace: "nowrap"
-                }}>
-                  🟢 {monitorStats.up} Up
-                </span>
-                <span style={{
-                  fontSize: "11px",
-                  fontWeight: 800,
-                  color: "#f87171",
-                  background: "rgba(248, 113, 113, 0.15)",
-                  border: "1px solid rgba(248, 113, 113, 0.3)",
-                  padding: "2px 7px",
-                  borderRadius: "6px",
-                  whiteSpace: "nowrap"
-                }}>
-                  🔴 {monitorStats.down} Down
-                </span>
-              </div>
-            }
-          />
+          <StatCard title="Uptime Monitors" value={monitorCount} icon="📡" color="green" subtitle="Website checks" />
         </div>
         <div onClick={() => navigate("/alerts")} style={{ cursor: "pointer" }}>
           <StatCard title="Active Alerts" value={alertCount} icon="🔔" color="red" subtitle="Needs attention" />

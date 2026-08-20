@@ -248,9 +248,9 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         fleet_background_sync_job,
         "interval",
-        hours=2,
+        minutes=10,
         id="fleet_sync",
-        misfire_grace_time=300,
+        misfire_grace_time=120,
         max_instances=1,
         coalesce=True,
     )
