@@ -32,40 +32,50 @@ def get_monitoring_status(
         return []
 
     site_ids = [s.id for s in sites]
-
-    # 2. Fetch latest check for each site using SQL max(id) subquery
-    latest_subquery = db.query(
-        UptimeCheck.site_id,
-        func.max(UptimeCheck.id).label("max_id")
-    ).filter(UptimeCheck.site_id.in_(site_ids)).group_by(UptimeCheck.site_id).subquery()
-
-    latest_checks = db.query(UptimeCheck).join(
-        latest_subquery, UptimeCheck.id == latest_subquery.c.max_id
-    ).all()
-    latest_by_site = {c.site_id: c for c in latest_checks}
-
-    # 3. Compute 24h stats directly in SQL database engine
     cutoff_24h = datetime.utcnow() - timedelta(hours=24)
-    stats_query = db.query(
-        UptimeCheck.site_id,
-        func.count(UptimeCheck.id).label("total"),
-        func.sum(case((UptimeCheck.is_up == True, 1), else_=0)).label("up"),
-        func.avg(UptimeCheck.response_time_ms).label("avg_rt")
-    ).filter(
-        UptimeCheck.site_id.in_(site_ids),
-        UptimeCheck.checked_at >= cutoff_24h
-    ).group_by(UptimeCheck.site_id).all()
 
+    # 2. Fetch all checks in the last 24h in ONE query
+    recent_checks = db.query(UptimeCheck).filter(
+        UptimeCheck.site_id.in_(site_ids),
+        UptimeCheck.checked_at >= cutoff_24h,
+    ).order_by(UptimeCheck.checked_at.desc()).all()
+
+    latest_by_site = {}
     stats_by_site = {}
-    for row in stats_query:
-        tot = row[1] or 0
-        up_cnt = row[2] or 0
-        avg_rt = round(float(row[3])) if row[3] is not None else None
-        pct = round((up_cnt / tot * 100), 2) if tot > 0 else None
+
+    for c in recent_checks:
+        if c.site_id not in latest_by_site:
+            latest_by_site[c.site_id] = c
+
+        st = stats_by_site.setdefault(c.site_id, {"total": 0, "up": 0, "rt_sum": 0, "rt_count": 0})
+        st["total"] += 1
+        if c.is_up:
+            st["up"] += 1
+            if c.response_time_ms is not None:
+                st["rt_sum"] += c.response_time_ms
+                st["rt_count"] += 1
+
+    # 3. For any sites with no checks in the last 24h, fetch their latest check in ONE query
+    missing_ids = [sid for sid in site_ids if sid not in latest_by_site]
+    if missing_ids:
+        older_checks = db.query(UptimeCheck).filter(
+            UptimeCheck.site_id.in_(missing_ids)
+        ).order_by(UptimeCheck.checked_at.desc()).all()
+        for c in older_checks:
+            if c.site_id not in latest_by_site:
+                latest_by_site[c.site_id] = c
+
+    # 4. Build response array in memory in Python
     result = []
     for site in sites:
         latest = latest_by_site.get(site.id)
-        st = stats_by_site.get(site.id, {"total": 0, "up": 0, "pct": None, "avg_rt": None})
+        st = stats_by_site.get(site.id, {"total": 0, "up": 0, "rt_sum": 0, "rt_count": 0})
+
+        total_checks = st["total"]
+        up_checks = st["up"]
+        uptime_pct = round((up_checks / total_checks * 100), 2) if total_checks > 0 else None
+        avg_rt = round(st["rt_sum"] / st["rt_count"]) if st["rt_count"] > 0 else None
+
         server_name = site.server.name if site.server else "Unknown"
 
         result.append({
@@ -81,9 +91,9 @@ def get_monitoring_status(
             "ssl_expiry_days": latest.ssl_expiry_days if latest else None,
             "last_checked": latest.checked_at.isoformat() if latest else None,
             "error_message": latest.error_message if latest and not latest.is_up else None,
-            "uptime_24h": st["pct"],
-            "avg_response_ms": st["avg_rt"],
-            "total_checks_24h": st["total"],
+            "uptime_24h": uptime_pct,
+            "avg_response_ms": avg_rt,
+            "total_checks_24h": total_checks,
         })
 
     return result
