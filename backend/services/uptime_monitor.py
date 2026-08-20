@@ -20,8 +20,8 @@ from services.notification_service import create_and_dispatch_alert
 
 logger = logging.getLogger(__name__)
 
-# Timeout for HTTP checks (5s ensures quick failure detection without blocking)
-HTTP_TIMEOUT = 5
+# Timeout for HTTP checks (30s accommodates slow sites taking 10-20s)
+HTTP_TIMEOUT = 30
 # How many consecutive failures before alerting
 FAILURE_THRESHOLD = 2
 
