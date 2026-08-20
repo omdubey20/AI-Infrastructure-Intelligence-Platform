@@ -233,22 +233,6 @@ def collect_system_info(client: paramiko.SSHClient) -> dict:
     uptime_raw = _run(client, "cat /proc/uptime | awk '{print int($1/86400)}'")
     info["uptime_days"] = _safe_int(uptime_raw)
 
-    proc_raw = _run(client, "ps aux --sort=-%cpu | head -n 11")
-    procs = []
-    lines = proc_raw.splitlines()
-    if len(lines) > 1:
-        for l in lines[1:]:
-            p = l.split(None, 10)
-            if len(p) >= 11:
-                procs.append({
-                    "user": p[0],
-                    "pid": p[1],
-                    "cpu": p[2],
-                    "mem": p[3],
-                    "command": p[10][:100]
-                })
-    info["top_processes"] = json.dumps(procs) if procs else None
-
     return info
 
 

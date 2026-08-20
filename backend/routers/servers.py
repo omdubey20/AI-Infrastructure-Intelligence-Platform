@@ -139,7 +139,6 @@ def get_server(
         "db_engines": getattr(server, "db_engines", None),
         "docker_installed": getattr(server, "docker_installed", False),
         "docker_containers_running": getattr(server, "docker_containers_running", 0),
-        "top_processes": json.loads(server.top_processes) if getattr(server, "top_processes", None) else [],
         "data_source": server.data_source,
         "last_scanned_at": server.last_scanned_at,
         "projects_count": len(discoveries),

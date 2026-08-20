@@ -215,42 +215,6 @@ export default function ServerDetail() {
         )}
 
       </div>
-
-      {/* Top Running Processes (Linux htop Inspector) */}
-      <div className="card" style={{ marginTop: "24px" }}>
-        <h3 style={{ fontSize: "14px", fontWeight: 800, color: "#94a3b8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px" }}>
-          📊 Top Running Processes (Linux Resource Hogs)
-        </h3>
-
-        {!server.top_processes || server.top_processes.length === 0 ? (
-          <p style={{ color: "#64748b", fontSize: "13px" }}>No active process telemetry available for this host.</p>
-        ) : (
-          <div className="table-responsive">
-            <table>
-              <thead>
-                <tr>
-                  <th>USER</th>
-                  <th>PID</th>
-                  <th>%CPU</th>
-                  <th>%MEM</th>
-                  <th>COMMAND</th>
-                </tr>
-              </thead>
-              <tbody>
-                {server.top_processes.map((pr, idx) => (
-                  <tr key={idx}>
-                    <td style={{ fontWeight: 600, color: "#a855f7" }}>{pr.user}</td>
-                    <td style={{ fontFamily: "monospace", color: "#38bdf8" }}>{pr.pid}</td>
-                    <td style={{ fontWeight: 800, color: parseFloat(pr.cpu) >= 20 ? "#ef4444" : "#4ade80" }}>{pr.cpu}%</td>
-                    <td style={{ fontWeight: 800, color: parseFloat(pr.mem) >= 20 ? "#f59e0b" : "#cbd5e1" }}>{pr.mem}%</td>
-                    <td style={{ fontFamily: "monospace", color: "#f1f5f9", fontSize: "12px" }}>{pr.command}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
