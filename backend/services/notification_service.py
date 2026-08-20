@@ -194,21 +194,23 @@ def dispatch_alert(db: Session, alert: Alert, server_name: str = "Unknown"):
         logger.debug(f"Alert cooldown active for {alert.type} on server {alert.server_id}, skipping notification")
         return
 
-    teams_ok = send_teams_alert(alert, server_name, db)
-    email_ok = send_email_alert(alert, server_name, db)
-
-    now = datetime.utcnow()
-    alert.notification_sent = True
-    if teams_ok:
-        alert.teams_sent_at = now
-    if email_ok:
-        alert.email_sent_at = now
-
     try:
+        teams_ok = send_teams_alert(alert, server_name, db)
+        email_ok = send_email_alert(alert, server_name, db)
+
+        now = datetime.utcnow()
+        alert.notification_sent = True
+        if teams_ok:
+            alert.teams_sent_at = now
+        if email_ok:
+            alert.email_sent_at = now
         db.commit()
     except Exception as e:
-        logger.warning(f"Failed to update alert notification status: {e}")
-        db.rollback()
+        logger.debug(f"Alert dispatch note: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def create_and_dispatch_alert(
@@ -220,16 +222,26 @@ def create_and_dispatch_alert(
     site_id: Optional[int] = None,
     server_name: str = "Unknown"
 ):
-    """Create an Alert record and dispatch notifications."""
-    alert = Alert(
-        server_id=server_id,
-        site_id=site_id,
-        type=alert_type,
-        severity=severity,
-        message=message,
-    )
-    db.add(alert)
-    db.flush()
+    """Create an Alert record and dispatch notifications safely."""
+    try:
+        alert = Alert(
+            server_id=server_id,
+            site_id=site_id,
+            type=alert_type,
+            severity=severity,
+            message=message,
+        )
+        db.add(alert)
+        db.commit()
+        db.refresh(alert)
+    except Exception as e:
+        logger.warning(f"Could not save alert: {e}")
+        db.rollback()
+        return None
 
-    dispatch_alert(db, alert, server_name)
+    try:
+        dispatch_alert(db, alert, server_name)
+    except Exception as dispatch_err:
+        logger.warning(f"Could not dispatch alert notification: {dispatch_err}")
+
     return alert
