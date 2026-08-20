@@ -8,6 +8,8 @@ const navItems = [
   { path: "/duplicates", label: "Duplicates", icon: "👯" },
   { path: "/monitoring", label: "Uptime Monitor", icon: "📡" },
   { path: "/alerts", label: "Alerts", icon: "🔔" },
+  { path: "/logs", label: "Log Explorer", icon: "📜" },
+  { path: "/api-keys", label: "API Keys AuthGuard", icon: "🔑" },
   { path: "/intelligence", label: "ML & AI Intel", icon: "⚡" },
 ];
 

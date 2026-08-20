@@ -12,6 +12,8 @@ import Projects from "./pages/Projects";
 import Duplicates from "./pages/Duplicates";
 import Monitoring from "./pages/Monitoring";
 import Alerts from "./pages/Alerts";
+import LogExplorer from "./pages/LogExplorer";
+import ApiKeys from "./pages/ApiKeys";
 import Intelligence from "./pages/Intelligence";
 
 function PrivateRoute({ children }) {
@@ -56,6 +58,8 @@ export default function App() {
           <Route path="/duplicates" element={<PrivateRoute><Layout><Duplicates /></Layout></PrivateRoute>} />
           <Route path="/monitoring" element={<PrivateRoute><Layout><Monitoring /></Layout></PrivateRoute>} />
           <Route path="/alerts" element={<PrivateRoute><Layout><Alerts /></Layout></PrivateRoute>} />
+          <Route path="/logs" element={<PrivateRoute><Layout><LogExplorer /></Layout></PrivateRoute>} />
+          <Route path="/api-keys" element={<PrivateRoute><Layout><ApiKeys /></Layout></PrivateRoute>} />
           <Route path="/intelligence" element={<PrivateRoute><Layout><Intelligence /></Layout></PrivateRoute>} />
 
           <Route path="*" element={<Navigate to="/dashboard" />} />

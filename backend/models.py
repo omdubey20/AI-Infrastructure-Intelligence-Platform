@@ -83,10 +83,11 @@ class Server(Base):
     python_versions = Column(String, nullable=True)
     java_versions = Column(String, nullable=True)
 
-    # --- Network ---
+    # --- Network & Processes ---
     open_ports = Column(Text, nullable=True)        # JSON list
     running_services = Column(Text, nullable=True)  # JSON list
     network_interfaces = Column(Text, nullable=True)
+    top_processes = Column(Text, nullable=True)       # JSON list of top CPU/RAM processes
 
     # --- Security ---
     ssl_expiry_days = Column(Integer, nullable=True)
@@ -398,3 +399,35 @@ class AlertConfig(Base):
     smtp_user = Column(String(255), nullable=True)
     smtp_password = Column(String(255), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LogEntry(Base):
+    __tablename__ = "log_entries"
+    __table_args__ = (
+        Index("ix_log_server_time", "server_id", "timestamp"),
+        Index("ix_log_level", "log_level"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    server_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
+    site_id = Column(Integer, ForeignKey("project_discoveries.id"), nullable=True)
+    log_level = Column(String(20), default="INFO", index=True)  # ERROR, WARN, INFO, DEBUG
+    source = Column(String(50), default="syslog")  # nginx, apache, syslog, app, auth
+    message = Column(Text, nullable=False)
+    raw_data = Column(Text, nullable=True)  # Optional JSON payload
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+
+    server = relationship("Server")
+    site = relationship("ProjectDiscovery")
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    key = Column(String(100), unique=True, index=True, nullable=False)
+    role = Column(String(50), default="ingest")  # ingest, read, admin
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime, nullable=True)

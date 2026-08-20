@@ -30,6 +30,9 @@ from routers import stats, projects, servers, discovery, whm, ml, ai, audit, das
 from routers import monitoring as monitoring_router
 from routers import alerts as alerts_router
 from routers import agent as agent_router
+from routers import logs as logs_router
+from routers import sse_stream as sse_router
+from routers import apikeys as apikeys_router
 from routers.auth import router as auth_router
 
 logging.basicConfig(level=logging.INFO)
@@ -325,6 +328,9 @@ app.include_router(dashboard_spec.router)
 app.include_router(monitoring_router.router)
 app.include_router(alerts_router.router)
 app.include_router(agent_router.router)
+app.include_router(logs_router.router)
+app.include_router(sse_router.router)
+app.include_router(apikeys_router.router)
 
 
 @app.get("/health")
