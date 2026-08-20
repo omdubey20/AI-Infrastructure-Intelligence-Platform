@@ -116,6 +116,37 @@ def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, 
     return discovery, True
 
 
+def deduplicate_discoveries(db, server_id: Optional[int] = None):
+    """Purge duplicate ProjectDiscovery rows sharing the same domain/project_name on a server."""
+    try:
+        query = db.query(ProjectDiscovery).order_by(ProjectDiscovery.id.asc())
+        if server_id:
+            query = query.filter(ProjectDiscovery.server_id == server_id)
+        rows = query.all()
+        seen = {}
+        dup_ids = []
+        for r in rows:
+            key = (r.server_id, (r.domain or '').lower().strip(), (r.project_name or '').lower().strip())
+            if key in seen:
+                keep_id = seen[key]
+                dup_ids.append((r.id, keep_id))
+            else:
+                seen[key] = r.id
+
+        for dup_id, keep_id in dup_ids:
+            db.query(ProjectDiscovery).filter(ProjectDiscovery.duplicate_of_id == dup_id).update({ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
+            db.query(UptimeCheck).filter(UptimeCheck.site_id == dup_id).update({UptimeCheck.site_id: keep_id}, synchronize_session=False)
+            db.query(Alert).filter(Alert.site_id == dup_id).update({Alert.site_id: keep_id}, synchronize_session=False)
+            db.query(MalwareAlert).filter(MalwareAlert.site_id == dup_id).update({MalwareAlert.site_id: keep_id}, synchronize_session=False)
+            db.query(AIInsight).filter(AIInsight.project_id == dup_id).update({AIInsight.project_id: keep_id}, synchronize_session=False)
+            db.query(ProjectDiscovery).filter(ProjectDiscovery.id == dup_id).delete(synchronize_session=False)
+
+        if dup_ids:
+            db.commit()
+    except Exception as e:
+        logger.warning(f"Deduplication notice: {e}")
+
+
 def _run(client: paramiko.SSHClient, command: str, timeout: int = 5) -> str:
     try:
         _, stdout, _ = client.exec_command(command, timeout=timeout)
@@ -625,6 +656,7 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                     created_count += 1
 
                 db.commit()
+                deduplicate_discoveries(db, server.id)
                 job.data_source = "whm"
                 job.projects_found = len(unique_accts)
                 return {"ssh_connected": False, "whm_connected": True, "projects_found": len(unique_accts), "data_source": "whm"}
