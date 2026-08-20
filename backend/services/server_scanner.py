@@ -383,6 +383,17 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     server.scan_error = None
     server.last_scanned_at = datetime.utcnow()
     server.risk_score = calculate_server_risk(server)
+
+    # Auto-resolve any legacy agent_offline or server_down alerts since server is active
+    stale_alerts = db.query(Alert).filter(
+        Alert.server_id == server.id,
+        Alert.type.in_(["agent_offline", "server_down"]),
+        Alert.is_resolved == False,
+    ).all()
+    for a in stale_alerts:
+        a.is_resolved = True
+        a.resolved_at = datetime.utcnow()
+
     db.commit()
 
     raw_projects = discover_projects_via_ssh(client)
@@ -527,6 +538,17 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                 server.scan_error = None
                 server.last_scanned_at = datetime.utcnow()
                 server.risk_score = calculate_server_risk(server)
+
+                # Auto-resolve any legacy agent_offline or server_down alerts since WHM server is active
+                stale_alerts = db.query(Alert).filter(
+                    Alert.server_id == server.id,
+                    Alert.type.in_(["agent_offline", "server_down"]),
+                    Alert.is_resolved == False,
+                ).all()
+                for a in stale_alerts:
+                    a.is_resolved = True
+                    a.resolved_at = datetime.utcnow()
+
                 db.commit()
 
                 seen_users = set()
