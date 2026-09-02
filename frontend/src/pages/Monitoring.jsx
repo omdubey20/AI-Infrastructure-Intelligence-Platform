@@ -44,18 +44,28 @@ export default function Monitoring() {
   const unknownCount = sites.filter(s => s.is_up === null).length;
 
   const [checking, setChecking] = useState(false);
+  const [checkMsg, setCheckMsg] = useState(null);
 
   const handleRunChecks = async () => {
     setChecking(true);
+    setCheckMsg("📡 Probing all sites in parallel (~25s)...");
     try {
       await api.post("/monitoring/check-now");
-      setTimeout(fetchStatus, 2000);
-      setTimeout(fetchStatus, 5000);
-      setTimeout(fetchStatus, 8000);
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        await fetchStatus();
+        if (attempts >= 10) {
+          clearInterval(poll);
+          setChecking(false);
+          setCheckMsg("✓ Latest live check completed!");
+          setTimeout(() => setCheckMsg(null), 5000);
+        }
+      }, 3000);
     } catch (e) {
       console.error("Check trigger error:", e);
-    } finally {
-      setTimeout(() => setChecking(false), 3000);
+      setChecking(false);
+      setCheckMsg(null);
     }
   };
 
@@ -69,29 +79,36 @@ export default function Monitoring() {
           </p>
           <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Uptime Monitor</h1>
           <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-            Real-time HTTP health checks every 60 seconds across all discovered project domains
+            Real-time HTTP health checks across all discovered project domains
           </p>
         </div>
-        <button
-          onClick={handleRunChecks}
-          disabled={checking}
-          style={{
-            background: checking ? "#334155" : "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
-            color: "#fff",
-            border: "none",
-            borderRadius: "8px",
-            padding: "10px 18px",
-            fontWeight: 700,
-            fontSize: "13px",
-            cursor: checking ? "not-allowed" : "pointer",
-            boxShadow: "0 4px 14px rgba(2, 132, 199, 0.3)",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-          }}
-        >
-          {checking ? "📡 Probing All Sites..." : "⚡ Run Uptime Checks Now"}
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" }}>
+          <button
+            onClick={handleRunChecks}
+            disabled={checking}
+            style={{
+              background: checking ? "#334155" : "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
+              color: "#fff",
+              border: "none",
+              borderRadius: "8px",
+              padding: "10px 18px",
+              fontWeight: 700,
+              fontSize: "13px",
+              cursor: checking ? "not-allowed" : "pointer",
+              boxShadow: "0 4px 14px rgba(2, 132, 199, 0.3)",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            {checking ? "📡 Probing 108 Sites (~25s)..." : "⚡ Run Uptime Checks Now"}
+          </button>
+          {checkMsg && (
+            <span style={{ fontSize: "12px", color: checkMsg.includes("✓") ? "#4ade80" : "#38bdf8", fontWeight: 700 }}>
+              {checkMsg}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Summary Cards */}

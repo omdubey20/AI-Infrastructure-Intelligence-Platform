@@ -164,7 +164,7 @@ def run_uptime_checks(db: Session):
             items_to_check.append((disc.id, disc.server_id, domain, server_name))
 
     probed_results = []
-    with ThreadPoolExecutor(max_workers=25) as executor:
+    with ThreadPoolExecutor(max_workers=50) as executor:
         futures = [executor.submit(_probe_disc_worker, item) for item in items_to_check]
         for f in as_completed(futures):
             try:
@@ -199,7 +199,7 @@ def run_uptime_checks(db: Session):
         # Check for state change and alert
         prev_state = _get_previous_state(db, disc_id)
 
-        if not result["is_up"] and _count_recent_failures(db, disc_id) >= FAILURE_THRESHOLD - 1:
+        if not result["is_up"]:
             existing = db.query(Alert).filter(
                 Alert.site_id == disc_id,
                 Alert.type == "site_down",

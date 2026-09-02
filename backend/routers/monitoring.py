@@ -89,7 +89,7 @@ def get_monitoring_status(
             "response_time_ms": latest.response_time_ms if latest else None,
             "ssl_valid": latest.ssl_valid if latest else None,
             "ssl_expiry_days": latest.ssl_expiry_days if latest else None,
-            "last_checked": latest.checked_at.isoformat() if latest else None,
+            "last_checked": (latest.checked_at.isoformat() + "Z") if latest else None,
             "error_message": latest.error_message if latest and not latest.is_up else None,
             "uptime_24h": uptime_pct,
             "avg_response_ms": avg_rt,
@@ -135,7 +135,7 @@ def get_uptime_history(
 
     return [
         {
-            "checked_at": c.checked_at.isoformat(),
+            "checked_at": (c.checked_at.isoformat() + "Z") if c.checked_at else None,
             "is_up": c.is_up,
             "http_status": c.http_status,
             "response_time_ms": c.response_time_ms,
