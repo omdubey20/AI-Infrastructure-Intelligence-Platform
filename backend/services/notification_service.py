@@ -205,7 +205,7 @@ def dispatch_alert(db: Session, alert: Alert, server_name: str = "Unknown"):
         alert.email_sent_at = now
 
     try:
-        db.commit()
+        db.flush()
     except Exception as e:
         logger.warning(f"Failed to update alert notification status: {e}")
         db.rollback()
