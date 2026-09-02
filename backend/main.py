@@ -356,7 +356,7 @@ def root(request: Request):
     if "text/html" in accept and static_build_dir and os.path.exists(static_build_dir):
         index_file = os.path.join(static_build_dir, "index.html")
         if os.path.exists(index_file):
-            return FileResponse(index_file, headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"})
+            return FileResponse(index_file)
     return {"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"}
 
 
@@ -375,6 +375,6 @@ if os.path.exists(static_build_dir):
         # 2. For all client-side routes (/monitoring, /servers, /alerts, /projects, etc.) -> index.html
         index_file = os.path.join(static_build_dir, "index.html")
         if os.path.exists(index_file):
-            return FileResponse(index_file, headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"})
+            return FileResponse(index_file)
 
         return {"message": "AI Infrastructure Intelligence Platform", "version": "3.0.0", "status": "running"}

@@ -45,8 +45,17 @@ SKIP_PREFIXES = (
 
 
 def _clear_server_discoveries(db, server_id: int):
-    """No-op: Preserves ProjectDiscovery, UptimeCheck, and Alert history. Upsert handles in-place updates."""
-    pass
+    """Purge old discovery records for server before a fresh scan to prevent duplicate accumulation."""
+    proj_rows = db.query(ProjectDiscovery.id).filter(ProjectDiscovery.server_id == server_id).all()
+    proj_ids = [p[0] for p in proj_rows]
+    if proj_ids:
+        db.query(ProjectDiscovery).filter(ProjectDiscovery.duplicate_of_id.in_(proj_ids)).update({ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
+        db.query(AIInsight).filter(AIInsight.project_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(UptimeCheck).filter(UptimeCheck.site_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(Alert).filter(Alert.site_id.in_(proj_ids)).delete(synchronize_session=False)
+        db.query(MalwareAlert).filter(MalwareAlert.site_id.in_(proj_ids)).delete(synchronize_session=False)
+    db.query(ProjectDiscovery).filter(ProjectDiscovery.server_id == server_id).delete(synchronize_session=False)
+    db.commit()
 
 
 def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, bool]:
@@ -378,6 +387,7 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     db.commit()
 
     raw_projects = discover_projects_via_ssh(client)
+    _clear_server_discoveries(db, server.id)
 
     created_count = 0
     for proj in raw_projects:
@@ -526,6 +536,7 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                         seen_users.add(u)
                         unique_accts.append(acc)
 
+                _clear_server_discoveries(db, server.id)
                 created_count = 0
 
                 for idx, acc in enumerate(unique_accts):
