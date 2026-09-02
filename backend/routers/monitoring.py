@@ -78,25 +78,21 @@ def get_monitoring_status(
 
         server_name = site.server.name if site.server else "Unknown"
 
-        site_is_up = latest.is_up if latest else True
-        http_code = latest.http_status if latest else (200 if site_is_up else None)
-        checked_time = (latest.checked_at.isoformat() + "Z") if (latest and latest.checked_at) else (site.created_at.isoformat() + "Z" if site.created_at else None)
-
         result.append({
             "id": site.id,
             "domain": site.domain,
             "url": f"https://{site.domain}",
             "server_id": site.server_id,
             "server_name": server_name,
-            "is_up": site_is_up,
-            "http_status": http_code,
-            "response_time_ms": latest.response_time_ms if (latest and latest.response_time_ms) else (145 if site_is_up else None),
-            "ssl_valid": latest.ssl_valid if (latest and latest.ssl_valid is not None) else True,
-            "ssl_expiry_days": latest.ssl_expiry_days if latest else 60,
-            "last_checked": checked_time,
+            "is_up": latest.is_up if latest else None,
+            "http_status": latest.http_status if latest else None,
+            "response_time_ms": latest.response_time_ms if latest else None,
+            "ssl_valid": latest.ssl_valid if latest else None,
+            "ssl_expiry_days": latest.ssl_expiry_days if latest else None,
+            "last_checked": (latest.checked_at.isoformat() + "Z") if latest else None,
             "error_message": latest.error_message if latest and not latest.is_up else None,
-            "uptime_24h": uptime_pct if uptime_pct is not None else (100.0 if site_is_up else 0.0),
-            "avg_response_ms": avg_rt or (latest.response_time_ms if latest else 145),
+            "uptime_24h": uptime_pct,
+            "avg_response_ms": avg_rt,
             "total_checks_24h": total_checks,
         })
 
