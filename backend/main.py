@@ -83,6 +83,11 @@ def migrate_db_schema():
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "email_sent_at" TIMESTAMP',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "site_id" INTEGER',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "resolved_at" TIMESTAMP',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "email_to" VARCHAR(255)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_host" VARCHAR(255)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_port" INTEGER DEFAULT 587',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_user" VARCHAR(255)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_password" VARCHAR(255)',
     ]
     for sql in migrations:
         try:
