@@ -11,9 +11,7 @@ export default function Monitoring() {
   const fetchStatus = async () => {
     try {
       const res = await api.get("/monitoring/status");
-      if (Array.isArray(res.data)) {
-        setSites(prev => (res.data.length > 0 || prev.length === 0 ? res.data : prev));
-      }
+      setSites(Array.isArray(res.data) ? res.data : []);
     } catch (e) {
       console.error("Monitoring fetch error:", e);
     } finally {
