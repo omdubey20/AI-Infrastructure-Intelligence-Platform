@@ -51,6 +51,7 @@ class AgentReport(BaseModel):
     os_name: Optional[str] = None
     os_version: Optional[str] = None
     kernel: Optional[str] = None
+    architecture: Optional[str] = None
     open_ports: Optional[str] = None
     running_services: Optional[str] = None
     discovered_projects: Optional[list] = None
@@ -505,9 +506,9 @@ def discover_local_projects():
                     hostname = subprocess.check_output(["hostname"], timeout=2).decode().strip()
                 except Exception:
                     pass
-                dom = hostname if "." in hostname else f"{hostname}.local"
+                dom = hostname if "." in hostname else hostname + ".local"
                 seen.add("/var/www/html")
-                projs.append({"name": dom, "domain": dom, "path": "/var/www/html", "owner": "www-data", "framework": "php"})
+                projs.append({{"name": dom, "domain": dom, "path": "/var/www/html", "owner": "www-data", "framework": "php"}})
         except Exception:
             pass
 
@@ -519,7 +520,7 @@ def discover_local_projects():
                     dom = userdomain_map.get(u, u)
                     if dom not in seen:
                         seen.add(dom)
-                        projs.append({"name": dom, "domain": dom, "path": html_path, "owner": u, "framework": "php"})
+                        projs.append({{"name": dom, "domain": dom, "path": html_path, "owner": u, "framework": "php"}})
         except Exception:
             pass
 
@@ -529,7 +530,7 @@ def discover_local_projects():
                 wpath = os.path.join("/var/www", d)
                 if os.path.isdir(wpath) and d not in ("html", "cgi-bin") and wpath not in seen:
                     seen.add(wpath)
-                    projs.append({"name": d, "domain": d, "path": wpath, "owner": "www-data", "framework": "php"})
+                    projs.append({{"name": d, "domain": d, "path": wpath, "owner": "www-data", "framework": "php"}})
         except Exception:
             pass
     return projs
