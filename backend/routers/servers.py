@@ -91,7 +91,9 @@ def list_servers(
             "last_scanned_at": s.last_scanned_at,
             "projects_count": counts.get(s.id, 0),
             "has_ssh_creds": bool(s.ssh_password or s.ssh_private_key),
-            "has_whm_creds": bool(s.whm_token)
+            "has_whm_creds": bool(s.whm_token),
+            "agent_installed": bool(s.agent_installed),
+            "agent_last_seen": s.agent_last_seen.isoformat() if s.agent_last_seen else None,
         })
     return results
 
@@ -141,6 +143,8 @@ def get_server(
         "docker_containers_running": getattr(server, "docker_containers_running", 0),
         "data_source": server.data_source,
         "last_scanned_at": server.last_scanned_at,
+        "agent_installed": bool(server.agent_installed),
+        "agent_last_seen": server.agent_last_seen.isoformat() if server.agent_last_seen else None,
         "projects_count": len(discoveries),
         "projects": [
             {
