@@ -597,7 +597,7 @@ cat > $AGENT_DIR/agent.conf << EOF
 }}
 EOF
 
-chmod +x $AGENT_DIR/infra_agent.py
+PYTHON_BIN=$(which python3 2>/dev/null || which /usr/local/cpanel/3rdparty/bin/python3 2>/dev/null || echo "/usr/bin/python3")
 
 # Create systemd service
 cat > /etc/systemd/system/infra-agent.service << EOF
@@ -607,7 +607,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 $AGENT_DIR/infra_agent.py
+ExecStart=$PYTHON_BIN $AGENT_DIR/infra_agent.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -619,12 +619,14 @@ EOF
 
 systemctl daemon-reload
 systemctl enable infra-agent
-systemctl start infra-agent
+systemctl restart infra-agent
 
+sleep 2
 echo ""
-echo "✅ Infra Intel Agent installed and running!"
-echo "   Service: systemctl status infra-agent"
-echo "   Logs: journalctl -u infra-agent -f"
+echo "✅ Infra Intel Agent installed and active!"
+systemctl status infra-agent --no-pager | head -n 8
+echo ""
+echo "   View live streaming logs: journalctl -u infra-agent -f"
 echo "   Config: $AGENT_DIR/agent.conf"
 """
     return PlainTextResponse(content=script, media_type="text/plain")
