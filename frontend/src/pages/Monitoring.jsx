@@ -44,8 +44,8 @@ export default function Monitoring() {
 
   useEffect(() => {
     fetchStatus();
-    // Poll every 30 seconds — lightweight GET, picks up new data quickly after scan commits
-    const interval = setInterval(fetchStatus, 30000);
+    // Poll every 5 minutes — keeps data fresh without excessive requests
+    const interval = setInterval(fetchStatus, 300000);
     return () => clearInterval(interval);
   }, []);
 
