@@ -137,7 +137,7 @@ export default function Monitoring() {
               gap: "8px",
             }}
           >
-            {checking ? (sites.length > 0 ? `📡 Probing ${sites.length} Sites...` : "📡 Probing Sites...") : "⚡ Run Uptime Checks Now"}
+            {checking ? "📡 Probing 108 Sites (~25s)..." : "⚡ Run Uptime Checks Now"}
           </button>
           {checkMsg && (
             <span style={{ fontSize: "12px", color: checkMsg.includes("✓") ? "#4ade80" : "#38bdf8", fontWeight: 700 }}>
