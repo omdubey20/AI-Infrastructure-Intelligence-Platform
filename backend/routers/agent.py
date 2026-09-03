@@ -63,6 +63,7 @@ def receive_agent_report(report: AgentReport, db: Session = Depends(get_db)):
     # Authenticate by API key
     server = db.query(Server).filter(Server.agent_api_key == report.api_key).first()
     if not server:
+        logger.warning(f"Rejected agent report: unrecognized or expired API key '{report.api_key[:12]}...'")
         raise HTTPException(status_code=401, detail="Invalid agent API key")
 
     now = datetime.utcnow()
@@ -236,6 +237,18 @@ def generate_agent_key(
     return {"server_id": server_id, "api_key": api_key, "message": "Agent API key generated"}
 
 
+def _resolve_base_url(request: Request) -> str:
+    """Resolve the external reachable base URL, respecting reverse proxy headers and env overrides."""
+    env_url = os.getenv("PUBLIC_API_URL") or os.getenv("APP_URL")
+    if env_url:
+        return env_url.rstrip("/")
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if host:
+        return f"{proto}://{host}".rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
 @router.get("/setup-command/{server_id}")
 def get_agent_setup_command(
     server_id: int,
@@ -252,7 +265,7 @@ def get_agent_setup_command(
         server.agent_api_key = f"infra_{secrets.token_hex(24)}"
         db.commit()
 
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _resolve_base_url(request)
     install_command = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key={server.agent_api_key}"
 
     return {
@@ -269,7 +282,7 @@ def get_agent_setup_command(
 @router.get("/install.sh")
 def get_install_script(request: Request):
     """Serve the agent installation script."""
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _resolve_base_url(request)
 
     script = f"""#!/bin/bash
 # AI Infrastructure Intelligence Platform — Agent Installer
