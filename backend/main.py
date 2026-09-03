@@ -264,7 +264,6 @@ async def lifespan(app: FastAPI):
         "interval",
         minutes=5,
         id="uptime_checks",
-        next_run_time=datetime.utcnow(),
         misfire_grace_time=120,
         max_instances=1,
         coalesce=True,

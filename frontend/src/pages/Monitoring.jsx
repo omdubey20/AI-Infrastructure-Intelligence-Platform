@@ -3,46 +3,15 @@ import api from "../api/axios";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 export default function Monitoring() {
-  const [sites, setSites] = useState(() => {
-    try {
-      const cached = localStorage.getItem("last_known_monitoring_sites");
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [loading, setLoading] = useState(() => {
-    try {
-      const cached = localStorage.getItem("last_known_monitoring_sites");
-      return !cached || JSON.parse(cached).length === 0;
-    } catch {
-      return true;
-    }
-  });
-  const [lastSynced, setLastSynced] = useState(() => {
-    try {
-      return localStorage.getItem("last_known_monitoring_sync_time") || null;
-    } catch {
-      return null;
-    }
-  });
+  const [sites, setSites] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedSite, setSelectedSite] = useState(null);
   const [history, setHistory] = useState([]);
 
   const fetchStatus = async () => {
     try {
       const res = await api.get("/monitoring/status");
-      if (Array.isArray(res.data) && res.data.length > 0) {
-        setSites(res.data);
-        const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        setLastSynced(now);
-        try {
-          localStorage.setItem("last_known_monitoring_sites", JSON.stringify(res.data));
-          localStorage.setItem("last_known_monitoring_sync_time", now);
-        } catch {}
-      } else if (Array.isArray(res.data) && res.data.length === 0) {
-        setSites([]);
-      }
+      setSites(Array.isArray(res.data) ? res.data : []);
     } catch (e) {
       console.error("Monitoring fetch error:", e);
     } finally {
@@ -61,8 +30,7 @@ export default function Monitoring() {
 
   useEffect(() => {
     fetchStatus();
-    // Auto-poll every 30 seconds so UI auto-refreshes when background scan completes
-    const interval = setInterval(fetchStatus, 30000);
+    const interval = setInterval(fetchStatus, 300000);
     return () => clearInterval(interval);
   }, []);
 
@@ -113,12 +81,6 @@ export default function Monitoring() {
 
           if (dataIsNewer) {
             setSites(freshSites);
-            const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-            setLastSynced(now);
-            try {
-              localStorage.setItem("last_known_monitoring_sites", JSON.stringify(freshSites));
-              localStorage.setItem("last_known_monitoring_sync_time", now);
-            } catch {}
             clearInterval(poll);
             setChecking(false);
             setCheckMsg("✓ Fresh live data loaded!");
@@ -154,11 +116,6 @@ export default function Monitoring() {
           <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Uptime Monitor</h1>
           <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
             Real-time HTTP health checks across all discovered project domains
-            {lastSynced && (
-              <span style={{ color: "#38bdf8", marginLeft: "8px", fontWeight: 600 }}>
-                · Last synced: {lastSynced} (Auto-sync active)
-              </span>
-            )}
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" }}>
@@ -180,7 +137,7 @@ export default function Monitoring() {
               gap: "8px",
             }}
           >
-            {checking ? "📡 Probing Sites in Parallel..." : "⚡ Run Uptime Checks Now"}
+            {checking ? (sites.length > 0 ? `📡 Probing ${sites.length} Sites...` : "📡 Probing Sites...") : "⚡ Run Uptime Checks Now"}
           </button>
           {checkMsg && (
             <span style={{ fontSize: "12px", color: checkMsg.includes("✓") ? "#4ade80" : "#38bdf8", fontWeight: 700 }}>
