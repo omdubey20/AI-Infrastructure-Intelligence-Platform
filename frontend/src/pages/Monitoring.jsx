@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import api from "../api/axios";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
@@ -7,11 +7,25 @@ export default function Monitoring() {
   const [loading, setLoading] = useState(true);
   const [selectedSite, setSelectedSite] = useState(null);
   const [history, setHistory] = useState([]);
+  const lastGoodData = useRef([]);
 
   const fetchStatus = async () => {
     try {
       const res = await api.get("/monitoring/status");
-      setSites(Array.isArray(res.data) ? res.data : []);
+      const freshSites = Array.isArray(res.data) ? res.data : [];
+
+      // Only update the UI if the new data has real check results.
+      // This prevents the PENDING flash when the backend scan is in-flight
+      // or the DB was just cleared and no checks exist yet.
+      const hasRealData = freshSites.some(s => s.is_up !== null);
+
+      if (hasRealData || lastGoodData.current.length === 0) {
+        setSites(freshSites);
+        if (hasRealData) {
+          lastGoodData.current = freshSites;
+        }
+      }
+      // If freshSites is all-null but we have last good data, keep showing it
     } catch (e) {
       console.error("Monitoring fetch error:", e);
     } finally {
@@ -30,7 +44,8 @@ export default function Monitoring() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 300000);
+    // Poll every 30 seconds — lightweight GET, picks up new data quickly after scan commits
+    const interval = setInterval(fetchStatus, 30000);
     return () => clearInterval(interval);
   }, []);
 
