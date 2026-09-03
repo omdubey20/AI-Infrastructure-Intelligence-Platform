@@ -212,8 +212,8 @@ export default function Servers() {
                       </span>
                     </td>
                     <td>
-                      <span className={s.agent_installed || s.data_source === "agent" ? "badge badge-green" : s.data_source === "ssh" ? "badge badge-green" : "badge badge-blue"}>
-                        {s.agent_installed || s.data_source === "agent" ? "🤖 AGENT" : s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"}
+                      <span className={s.data_source === "ssh" ? "badge badge-green" : "badge badge-blue"}>
+                        {s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"}
                       </span>
                     </td>
                     <td>
@@ -227,26 +227,8 @@ export default function Servers() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "6px" }}>
-                        <button
-                          onClick={(e) => handleOpenAgentModal(s, e)}
-                          className="btn-secondary"
-                          style={{
-                            padding: "4px 10px",
-                            fontSize: "11px",
-                            background: s.agent_installed
-                              ? (s.status === "agent_offline" ? "rgba(248,113,113,0.15)" : "rgba(74,222,128,0.15)")
-                              : "rgba(56,189,248,0.15)",
-                            color: s.agent_installed
-                              ? (s.status === "agent_offline" ? "#f87171" : "#4ade80")
-                              : "#38bdf8",
-                            border: s.agent_installed
-                              ? (s.status === "agent_offline" ? "1px solid rgba(248,113,113,0.3)" : "1px solid rgba(74,222,128,0.3)")
-                              : "1px solid rgba(56,189,248,0.3)",
-                          }}
-                        >
-                          {s.agent_installed
-                            ? (s.status === "agent_offline" ? "🔴 Agent Offline" : "🟢 Agent Active")
-                            : "🔌 Connect Agent"}
+                        <button onClick={(e) => handleOpenAgentModal(s, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px", background: s.data_source === "agent" ? "rgba(74,222,128,0.15)" : "rgba(56,189,248,0.15)", color: s.data_source === "agent" ? "#4ade80" : "#38bdf8", border: s.data_source === "agent" ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(56,189,248,0.3)" }}>
+                          {s.data_source === "agent" ? "🟢 Agent Active" : "🔌 Connect Agent"}
                         </button>
                         <button onClick={(e) => handleScanSingle(s.id, s.name, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px" }}>
                           ⚡ Scan

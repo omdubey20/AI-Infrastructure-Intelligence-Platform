@@ -236,19 +236,6 @@ def generate_agent_key(
     return {"server_id": server_id, "api_key": api_key, "message": "Agent API key generated"}
 
 
-def _get_base_url(request: Request) -> str:
-    env_url = os.getenv("PUBLIC_API_URL") or os.getenv("APP_URL")
-    if env_url:
-        return env_url.rstrip("/")
-    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
-    if railway_domain:
-        return f"https://{railway_domain}".rstrip("/")
-    
-    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme).lower()
-    forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
-    return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
-
-
 @router.get("/setup-command/{server_id}")
 def get_agent_setup_command(
     server_id: int,
@@ -265,7 +252,7 @@ def get_agent_setup_command(
         server.agent_api_key = f"infra_{secrets.token_hex(24)}"
         db.commit()
 
-    base_url = _get_base_url(request)
+    base_url = str(request.base_url).rstrip("/")
     install_command = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key={server.agent_api_key}"
 
     return {
@@ -282,7 +269,7 @@ def get_agent_setup_command(
 @router.get("/install.sh")
 def get_install_script(request: Request):
     """Serve the agent installation script."""
-    base_url = _get_base_url(request)
+    base_url = str(request.base_url).rstrip("/")
 
     script = f"""#!/bin/bash
 # AI Infrastructure Intelligence Platform — Agent Installer
