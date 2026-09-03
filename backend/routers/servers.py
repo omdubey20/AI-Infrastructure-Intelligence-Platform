@@ -187,9 +187,20 @@ def create_server(
 
     create_audit_entry(db, action="create_server", entity_type="server", entity_id=new_server.id, entity_name=new_server.name, user_id=current_user.id)
 
-    # Immediately trigger scan
+    # Immediately trigger scan and uptime checks
     try:
         scan_server_projects(db, new_server)
+        import threading
+        from services.uptime_monitor import run_uptime_checks
+        def _bg_uptime():
+            db_u = next(get_db())
+            try:
+                run_uptime_checks(db_u)
+            except Exception as bg_err:
+                logger.warning(f"Background uptime check notice: {bg_err}")
+            finally:
+                db_u.close()
+        threading.Thread(target=_bg_uptime, daemon=True).start()
     except Exception as e:
         logger.warning(f"Initial scan notice for {new_server.name}: {e}")
 
@@ -244,6 +255,19 @@ def trigger_scan(
 
     result = scan_server_projects(db, server)
     create_audit_entry(db, action="scan_server", entity_type="server", entity_id=server.id, entity_name=server.name, user_id=current_user.id)
+
+    # Immediately trigger background uptime checks for newly updated domains
+    import threading
+    from services.uptime_monitor import run_uptime_checks
+    def _bg_uptime():
+        db_u = next(get_db())
+        try:
+            run_uptime_checks(db_u)
+        except Exception as bg_err:
+            logger.warning(f"Background uptime check notice: {bg_err}")
+        finally:
+            db_u.close()
+    threading.Thread(target=_bg_uptime, daemon=True).start()
 
     return {
         "message": "Discovery completed",
