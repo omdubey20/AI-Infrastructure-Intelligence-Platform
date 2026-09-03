@@ -20,7 +20,10 @@ def get_monitoring_status(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """Get current up/down status for all monitored sites (ultra-fast bulk load)."""
+    """Get current up/down status for all monitored sites.
+    Always returns the most recent check data (regardless of age) so the page
+    never shows 'PENDING'.  24-hour uptime stats are computed separately.
+    """
     # 1. Load all live sites with server in ONE query
     sites = db.query(ProjectDiscovery).options(joinedload(ProjectDiscovery.server)).filter(
         ProjectDiscovery.domain.isnot(None),
@@ -32,40 +35,33 @@ def get_monitoring_status(
         return []
 
     site_ids = [s.id for s in sites]
-    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
 
-    # 2. Fetch all checks in the last 24h in ONE query
-    recent_checks = db.query(UptimeCheck).filter(
+    # 2. Fetch the single most-recent check per site (no time restriction)
+    #    This guarantees page load always shows last-known state.
+    all_checks = db.query(UptimeCheck).filter(
         UptimeCheck.site_id.in_(site_ids),
-        UptimeCheck.checked_at >= cutoff_24h,
     ).order_by(UptimeCheck.checked_at.desc()).all()
 
     latest_by_site = {}
+    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
     stats_by_site = {}
 
-    for c in recent_checks:
+    for c in all_checks:
+        # Track the latest check per site (first seen = most recent due to DESC order)
         if c.site_id not in latest_by_site:
             latest_by_site[c.site_id] = c
 
-        st = stats_by_site.setdefault(c.site_id, {"total": 0, "up": 0, "rt_sum": 0, "rt_count": 0})
-        st["total"] += 1
-        if c.is_up:
-            st["up"] += 1
-            if c.response_time_ms is not None:
-                st["rt_sum"] += c.response_time_ms
-                st["rt_count"] += 1
+        # Accumulate 24h stats only for checks within the window
+        if c.checked_at >= cutoff_24h:
+            st = stats_by_site.setdefault(c.site_id, {"total": 0, "up": 0, "rt_sum": 0, "rt_count": 0})
+            st["total"] += 1
+            if c.is_up:
+                st["up"] += 1
+                if c.response_time_ms is not None:
+                    st["rt_sum"] += c.response_time_ms
+                    st["rt_count"] += 1
 
-    # 3. For any sites with no checks in the last 24h, fetch their latest check in ONE query
-    missing_ids = [sid for sid in site_ids if sid not in latest_by_site]
-    if missing_ids:
-        older_checks = db.query(UptimeCheck).filter(
-            UptimeCheck.site_id.in_(missing_ids)
-        ).order_by(UptimeCheck.checked_at.desc()).all()
-        for c in older_checks:
-            if c.site_id not in latest_by_site:
-                latest_by_site[c.site_id] = c
-
-    # 4. Build response array in memory in Python
+    # 3. Build response array
     result = []
     for site in sites:
         latest = latest_by_site.get(site.id)
