@@ -48,18 +48,54 @@ export default function Monitoring() {
 
   const handleRunChecks = async () => {
     setChecking(true);
-    setCheckMsg("📡 Probing all sites in parallel (~25s)...");
+    setCheckMsg("📡 Probing all sites in parallel...");
+
+    // Capture the newest last_checked timestamp BEFORE the scan
+    const oldestTimestamp = sites.length > 0
+      ? sites.reduce((latest, s) => {
+          if (!s.last_checked) return latest;
+          const t = new Date(s.last_checked).getTime();
+          return t > latest ? t : latest;
+        }, 0)
+      : 0;
+
     try {
       await api.post("/monitoring/check-now");
       let attempts = 0;
+      const maxAttempts = 60; // 3 min max wait
+
       const poll = setInterval(async () => {
         attempts++;
-        await fetchStatus();
-        if (attempts >= 10) {
-          clearInterval(poll);
-          setChecking(false);
-          setCheckMsg("✓ Latest live check completed!");
-          setTimeout(() => setCheckMsg(null), 5000);
+        try {
+          const res = await api.get("/monitoring/status");
+          const freshSites = Array.isArray(res.data) ? res.data : [];
+
+          // Check if ANY site has a newer timestamp than before
+          const newestNow = freshSites.reduce((latest, s) => {
+            if (!s.last_checked) return latest;
+            const t = new Date(s.last_checked).getTime();
+            return t > latest ? t : latest;
+          }, 0);
+
+          const dataIsNewer = newestNow > oldestTimestamp;
+
+          if (dataIsNewer) {
+            setSites(freshSites);
+            clearInterval(poll);
+            setChecking(false);
+            setCheckMsg("✓ Fresh live data loaded!");
+            setTimeout(() => setCheckMsg(null), 5000);
+          } else if (attempts >= maxAttempts) {
+            setSites(freshSites);
+            clearInterval(poll);
+            setChecking(false);
+            setCheckMsg("⚠ Scan timed out — data may still be updating");
+            setTimeout(() => setCheckMsg(null), 8000);
+          } else {
+            setCheckMsg(`📡 Scanning... (${attempts * 3}s elapsed)`);
+          }
+        } catch (pollErr) {
+          console.error("Poll error:", pollErr);
         }
       }, 3000);
     } catch (e) {
