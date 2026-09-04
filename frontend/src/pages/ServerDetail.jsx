@@ -143,10 +143,15 @@ export default function ServerDetail() {
                 1-Line Terminal Install Command for Real-Time Telemetry & Alerts
               </h3>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
               <span className={agentSetupData.agent_installed ? "badge badge-green" : "badge badge-amber"}>
                 {agentSetupData.agent_installed ? "🟢 Agent Active" : "🟡 Agent Not Connected"}
               </span>
+              {agentSetupData.agent_last_seen && (
+                <span style={{ fontSize: "11px", color: "#64748b" }}>
+                  Last Heartbeat: {new Date(agentSetupData.agent_last_seen).toLocaleTimeString()}
+                </span>
+              )}
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(agentSetupData.install_command);
@@ -165,7 +170,7 @@ export default function ServerDetail() {
             {agentSetupData.install_command}
           </pre>
           <p style={{ fontSize: "12px", color: "#64748b", marginTop: "10px" }}>
-            💡 SSH into <code>{server.ip_address}</code> or open cPanel Terminal as root and run the command above to start 60s CPU/RAM/Disk/Malware telemetry streaming.
+            💡 SSH into <code>{server.ip_address}</code> or open cPanel Terminal / WHM as root and run the command above to start real-time telemetry streaming.
           </p>
         </div>
       )}

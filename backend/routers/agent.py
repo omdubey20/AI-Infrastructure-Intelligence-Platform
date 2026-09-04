@@ -236,6 +236,34 @@ def generate_agent_key(
     return {"server_id": server_id, "api_key": api_key, "message": "Agent API key generated"}
 
 
+def _get_base_url(request: Request) -> str:
+    env_url = os.getenv("PUBLIC_API_URL") or os.getenv("APP_URL")
+    if env_url:
+        return env_url.rstrip("/")
+    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+    if railway_domain:
+        return f"https://{railway_domain}".rstrip("/")
+
+    # Check origin or referer header sent by browser
+    origin = request.headers.get("origin")
+    if origin and "://" in origin:
+        return origin.rstrip("/")
+    referer = request.headers.get("referer")
+    if referer and "://" in referer:
+        from urllib.parse import urlparse
+        p = urlparse(referer)
+        if p.scheme and p.netloc:
+            return f"{p.scheme}://{p.netloc}".rstrip("/")
+
+    # Check proxy forwarded headers
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme).lower()
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if host and not host.startswith("0.0.0.0") and not host.startswith("127.0.0.1") and not host.startswith("localhost"):
+        return f"{proto}://{host}".rstrip("/")
+
+    return str(request.base_url).rstrip("/")
+
+
 @router.get("/setup-command/{server_id}")
 def get_agent_setup_command(
     server_id: int,
@@ -252,8 +280,8 @@ def get_agent_setup_command(
         server.agent_api_key = f"infra_{secrets.token_hex(24)}"
         db.commit()
 
-    base_url = str(request.base_url).rstrip("/")
-    install_command = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key={server.agent_api_key}"
+    base_url = _get_base_url(request)
+    install_command = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key={server.agent_api_key} --url={base_url}"
 
     return {
         "server_id": server.id,
@@ -269,7 +297,7 @@ def get_agent_setup_command(
 @router.get("/install.sh")
 def get_install_script(request: Request):
     """Serve the agent installation script."""
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _get_base_url(request)
 
     script = f"""#!/bin/bash
 # AI Infrastructure Intelligence Platform — Agent Installer
@@ -586,6 +614,8 @@ EOF
 
 chmod +x $AGENT_DIR/infra_agent.py
 
+PYTHON_BIN=$(which python3 2>/dev/null || which /usr/local/cpanel/3rdparty/bin/python3 2>/dev/null || echo "/usr/bin/python3")
+
 # Create systemd service
 cat > /etc/systemd/system/infra-agent.service << EOF
 [Unit]
@@ -594,7 +624,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 $AGENT_DIR/infra_agent.py
+ExecStart=$PYTHON_BIN $AGENT_DIR/infra_agent.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -604,13 +634,38 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
+echo "📡 Verifying connectivity with $API_URL..."
+$PYTHON_BIN -c '
+import sys, urllib.request, json, ssl
+try:
+    url = "'"$API_URL"'/agent/report"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps({{"api_key": "'"$API_KEY"'", "hostname": "agent-installed"}}).encode(),
+        headers={{"Content-Type": "application/json", "User-Agent": "InfraIntelAgent/1.0"}},
+        method="POST"
+    )
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+        if r.status == 200:
+            print("✅ Verified: Successfully connected to AI Infrastructure Intelligence Platform!")
+        else:
+            print(f"⚠️ Notice: Platform response HTTP {{r.status}}")
+except Exception as e:
+    print(f"⚠️ Initial connection check notice: {{e}} (agent daemon will auto-retry)")
+' 2>/dev/null || true
+
 systemctl daemon-reload
 systemctl enable infra-agent
-systemctl start infra-agent
+systemctl restart infra-agent
 
+sleep 1
 echo ""
-echo "✅ Infra Intel Agent installed and running!"
-echo "   Service: systemctl status infra-agent"
+echo "✅ Infra Intel Agent installed and active!"
+systemctl status infra-agent --no-pager | head -n 8
+echo ""
 echo "   Logs: journalctl -u infra-agent -f"
 echo "   Config: $AGENT_DIR/agent.conf"
 """

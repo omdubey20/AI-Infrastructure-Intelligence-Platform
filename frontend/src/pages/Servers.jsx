@@ -212,8 +212,8 @@ export default function Servers() {
                       </span>
                     </td>
                     <td>
-                      <span className={s.data_source === "ssh" ? "badge badge-green" : "badge badge-blue"}>
-                        {s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"}
+                      <span className={s.agent_installed || s.data_source === "agent" ? "badge badge-green" : s.data_source === "ssh" ? "badge badge-green" : s.data_source === "whm" ? "badge badge-blue" : "badge badge-blue"}>
+                        {s.agent_installed || s.data_source === "agent" ? "🟢 AGENT" : s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"}
                       </span>
                     </td>
                     <td>
@@ -227,9 +227,41 @@ export default function Servers() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "6px" }}>
-                        <button onClick={(e) => handleOpenAgentModal(s, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px", background: s.data_source === "agent" ? "rgba(74,222,128,0.15)" : "rgba(56,189,248,0.15)", color: s.data_source === "agent" ? "#4ade80" : "#38bdf8", border: s.data_source === "agent" ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(56,189,248,0.3)" }}>
-                          {s.data_source === "agent" ? "🟢 Agent Active" : "🔌 Connect Agent"}
-                        </button>
+                        {(() => {
+                          const isInstalled = Boolean(s.agent_installed || s.data_source === "agent");
+                          const isOnline = isInstalled && (!s.agent_last_seen || (Date.now() - new Date(s.agent_last_seen).getTime() < 15 * 60 * 1000));
+                          return (
+                            <button
+                              onClick={(e) => handleOpenAgentModal(s, e)}
+                              className="btn-secondary"
+                              style={{
+                                padding: "4px 10px",
+                                fontSize: "11px",
+                                background: !isInstalled
+                                  ? "rgba(56,189,248,0.15)"
+                                  : isOnline
+                                  ? "rgba(74,222,128,0.15)"
+                                  : "rgba(251,191,36,0.15)",
+                                color: !isInstalled
+                                  ? "#38bdf8"
+                                  : isOnline
+                                  ? "#4ade80"
+                                  : "#fbbf24",
+                                border: !isInstalled
+                                  ? "1px solid rgba(56,189,248,0.3)"
+                                  : isOnline
+                                  ? "1px solid rgba(74,222,128,0.3)"
+                                  : "1px solid rgba(251,191,36,0.3)"
+                              }}
+                            >
+                              {!isInstalled
+                                ? "🔌 Connect Agent"
+                                : isOnline
+                                ? "🟢 Agent Active"
+                                : "🟡 Agent Inactive"}
+                            </button>
+                          );
+                        })()}
                         <button onClick={(e) => handleScanSingle(s.id, s.name, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px" }}>
                           ⚡ Scan
                         </button>
@@ -289,6 +321,11 @@ export default function Servers() {
                     <p style={{ fontSize: "12px", fontWeight: 800, color: agentSetupData.agent_installed ? "#4ade80" : "#fbbf24", marginTop: "4px" }}>
                       {agentSetupData.agent_installed ? "🟢 Active & Reporting" : "🟡 Pending First Heartbeat"}
                     </p>
+                    {agentSetupData.agent_last_seen && (
+                      <p style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
+                        Last seen: {new Date(agentSetupData.agent_last_seen).toLocaleTimeString()}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -296,8 +333,8 @@ export default function Servers() {
                   <p style={{ fontWeight: 800, color: "#38bdf8", marginBottom: "4px" }}>💡 Installation Steps:</p>
                   <ol style={{ margin: 0, paddingLeft: "18px" }}>
                     <li>Copy the terminal command above.</li>
-                    <li>SSH into <code>{agentModalServer.ip_address}</code> or open cPanel Terminal as root.</li>
-                    <li>Paste and execute. The agent runs as a system daemon, auto-starts on boot, and reports CPU, RAM, Disk, Load, and Malware alerts every 60 seconds.</li>
+                    <li>SSH into <code>{agentModalServer.ip_address}</code> or open cPanel Terminal / WHM as root.</li>
+                    <li>Paste and execute. The installer auto-detects Python 3, tests connection to the platform, registers the server, and starts the background monitoring daemon.</li>
                   </ol>
                 </div>
               </div>
