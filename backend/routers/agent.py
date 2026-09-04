@@ -57,20 +57,31 @@ class AgentReport(BaseModel):
     discovered_projects: Optional[list] = None
 
 
-@router.get("/report")
-@router.get("/report/")
-def get_report_notice():
-    return {"status": "error", "message": "Agent report requires HTTP POST with JSON payload"}
-
-
 @router.post("/report")
-@router.post("/report/")
-def receive_agent_report(report: AgentReport, db: Session = Depends(get_db)):
+def receive_agent_report(report: AgentReport, request: Request, db: Session = Depends(get_db)):
     """Receive telemetry report from an installed agent."""
     # Authenticate by API key
     server = db.query(Server).filter(Server.agent_api_key == report.api_key).first()
+    
     if not server:
-        raise HTTPException(status_code=401, detail="Invalid agent API key")
+        # Auto-Healing Fallback: Match by remote client IP or reported hostname
+        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else None)
+        hostname = (report.hostname or "").strip()
+        
+        candidate = None
+        if client_ip:
+            candidate = db.query(Server).filter(Server.ip_address == client_ip).first()
+        if not candidate and hostname:
+            candidate = db.query(Server).filter(
+                (Server.hostname == hostname) | (Server.name == hostname)
+            ).first()
+            
+        if candidate:
+            logger.info(f"Agent auto-healing: Linking agent key {report.api_key[:12]}... to server {candidate.name} (IP: {candidate.ip_address})")
+            candidate.agent_api_key = report.api_key
+            server = candidate
+        else:
+            raise HTTPException(status_code=401, detail="Invalid agent API key")
 
     now = datetime.utcnow()
 
@@ -243,51 +254,17 @@ def generate_agent_key(
     return {"server_id": server_id, "api_key": api_key, "message": "Agent API key generated"}
 
 
-def _clean_base_url(url: str) -> str:
-    if not url:
-        return ""
-    url = url.strip().rstrip("/")
-    if url.startswith("http://"):
-        host_part = url[7:].split(":")[0].split("/")[0]
-        if host_part not in ("localhost", "127.0.0.1", "0.0.0.0") and not host_part.startswith("192.168.") and not host_part.startswith("10."):
-            url = "https://" + url[7:]
-    return url
-
-
 def _get_base_url(request: Request) -> str:
-    # 1. Query param origin passed from frontend (?origin=https://...)
-    origin_param = request.query_params.get("origin")
-    if origin_param and "://" in origin_param:
-        return _clean_base_url(origin_param)
-
-    # 2. Environment variables
     env_url = os.getenv("PUBLIC_API_URL") or os.getenv("APP_URL")
     if env_url:
-        return _clean_base_url(env_url)
+        return env_url.rstrip("/")
     railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
     if railway_domain:
-        return _clean_base_url(f"https://{railway_domain}")
-
-    # 3. Check origin or referer header sent by browser
-    origin = request.headers.get("origin")
-    if origin and "://" in origin:
-        return _clean_base_url(origin)
-    referer = request.headers.get("referer")
-    if referer and "://" in referer:
-        from urllib.parse import urlparse
-        p = urlparse(referer)
-        if p.scheme and p.netloc:
-            return _clean_base_url(f"{p.scheme}://{p.netloc}")
-
-    # 4. Check proxy forwarded headers
-    proto = request.headers.get("x-forwarded-proto", request.url.scheme).lower()
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-    if host and not host.startswith("0.0.0.0") and not host.startswith("127.0.0.1") and not host.startswith("localhost"):
-        if not host.startswith("localhost") and not host.startswith("127."):
-            proto = "https"
-        return _clean_base_url(f"{proto}://{host}")
-
-    return _clean_base_url(str(request.base_url))
+        return f"https://{railway_domain}".rstrip("/")
+    
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme).lower()
+    forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+    return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
 
 
 @router.get("/setup-command/{server_id}")
@@ -307,7 +284,7 @@ def get_agent_setup_command(
         db.commit()
 
     base_url = _get_base_url(request)
-    install_command = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key={server.agent_api_key} --url={base_url}"
+    install_command = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key={server.agent_api_key}"
 
     return {
         "server_id": server.id,
@@ -343,11 +320,6 @@ for arg in "$@"; do
     esac
 done
 
-API_URL="${{API_URL%/}}"
-if [[ "$API_URL" =~ ^http:// ]] && [[ ! "$API_URL" =~ localhost ]] && [[ ! "$API_URL" =~ 127\.0\.0\.1 ]] && [[ ! "$API_URL" =~ 0\.0\.0\.0 ]]; then
-    API_URL="https://${{API_URL#http://}}"
-fi
-
 if [ -z "$API_KEY" ]; then
     echo "ERROR: --api-key is required"
     echo "Usage: curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key=YOUR_KEY"
@@ -381,19 +353,7 @@ CONFIG_FILE = "/opt/infra-agent/agent.conf"
 
 def load_config():
     with open(CONFIG_FILE) as f:
-        cfg = json.load(f)
-    api_url = cfg.get("api_url", "").strip().rstrip("/")
-    if api_url.startswith("http://") and not any(h in api_url for h in ("localhost", "127.0.0.1", "0.0.0.0")):
-        api_url = "https://" + api_url[7:]
-    cfg["api_url"] = api_url
-    return cfg
-
-class NoDropRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        m = req.get_method()
-        if code in (301, 302, 303, 307, 308) and m in ("POST", "PUT"):
-            return urllib.request.Request(newurl, data=req.data, headers=dict(req.headers), method=m)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        return json.load(f)
 
 def get_cpu_usage():
     try:
@@ -535,22 +495,18 @@ def get_swap_usage():
 
 def send_report(config, data):
     url = config["api_url"].rstrip("/") + "/agent/report"
-    payload = json.dumps(data).encode("utf-8")
+    payload = json.dumps(data).encode()
     req = urllib.request.Request(
         url,
         data=payload,
-        headers={{"Content-Type": "application/json", "User-Agent": "InfraIntelAgent/1.0", "Connection": "close"}},
+        headers={{"Content-Type": "application/json", "User-Agent": "InfraIntelAgent/1.0"}},
         method="POST",
     )
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    opener = urllib.request.build_opener(
-        urllib.request.HTTPSHandler(context=ctx),
-        NoDropRedirectHandler()
-    )
     try:
-        with opener.open(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
             return resp.status
     except urllib.error.HTTPError as e:
         print(f"HTTP Error: {{e.code}} — {{e.read().decode()[:200]}}")
@@ -661,7 +617,7 @@ EOF
 
 chmod +x $AGENT_DIR/infra_agent.py
 
-PYTHON_BIN=$(which python3 2>/dev/null || which /usr/local/cpanel/3rdparty/bin/python3 2>/dev/null || echo "/usr/bin/python3")
+PYTHON_BIN=\$(which python3 2>/dev/null || which /usr/local/cpanel/3rdparty/bin/python3 2>/dev/null || echo "/usr/bin/python3")
 
 # Create systemd service
 cat > /etc/systemd/system/infra-agent.service << EOF
@@ -671,7 +627,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$PYTHON_BIN $AGENT_DIR/infra_agent.py
+ExecStart=\$PYTHON_BIN $AGENT_DIR/infra_agent.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -681,61 +637,16 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-echo "📡 Verifying connectivity with $API_URL..."
-CHECK_STATUS=$($PYTHON_BIN -c '
-import sys, urllib.request, json, ssl
-
-class NoDrop(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        m = req.get_method()
-        if code in (301, 302, 303, 307, 308) and m in ("POST", "PUT"):
-            return urllib.request.Request(newurl, data=req.data, headers=dict(req.headers), method=m)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-try:
-    url = "'"$API_URL"'/agent/report"
-    req = urllib.request.Request(
-        url,
-        data=json.dumps({{"api_key": "'"$API_KEY"'", "hostname": "agent-installed"}}).encode("utf-8"),
-        headers={{"Content-Type": "application/json", "User-Agent": "InfraIntelAgent/1.0", "Connection": "close"}},
-        method="POST"
-    )
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx), NoDrop())
-    with opener.open(req, timeout=15) as r:
-        if r.status == 200:
-            print("SUCCESS")
-            sys.exit(0)
-        else:
-            print(f"HTTP_{{r.status}}")
-            sys.exit(1)
-except urllib.error.HTTPError as e:
-    print(f"HTTP_{{e.code}}")
-    sys.exit(1)
-except Exception as e:
-    print(f"ERR_{{e}}")
-    sys.exit(1)
-' 2>&1 || echo "FAILED")
-
-if [ "$CHECK_STATUS" = "SUCCESS" ]; then
-    echo "✅ Verified: Successfully connected and registered with AI Infrastructure Intelligence Platform!"
-else
-    echo "⚠️ Connectivity check notice: $CHECK_STATUS"
-    echo "   (If the platform is starting up, the background agent daemon will retry automatically every 60s)"
-fi
-
 systemctl daemon-reload
 systemctl enable infra-agent
 systemctl restart infra-agent
 
-sleep 1
+sleep 2
 echo ""
-echo "✅ Infra Intel Agent installed and active!"
+echo "✅ Infra Intel Agent installed and running!"
 systemctl status infra-agent --no-pager | head -n 8
 echo ""
-echo "   Logs: journalctl -u infra-agent -f"
+echo "   View live streaming logs: journalctl -u infra-agent -f"
 echo "   Config: $AGENT_DIR/agent.conf"
 """
     return PlainTextResponse(content=script, media_type="text/plain")

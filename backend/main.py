@@ -72,9 +72,12 @@ def ensure_default_admin():
         db.close()
 
 def migrate_db_schema():
-    """Ensure new columns exist. Uses ADD COLUMN IF NOT EXISTS (PostgreSQL 9.6+). Silently skips on error."""
-    from sqlalchemy import text
-    migrations = [
+    """Ensure all required columns exist in PostgreSQL and SQLite without errors."""
+    from sqlalchemy import text, inspect
+    
+    is_sqlite = "sqlite" in str(engine.url)
+    
+    pg_migrations = [
         'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_api_key" VARCHAR',
         'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_installed" BOOLEAN DEFAULT FALSE',
         'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_last_seen" TIMESTAMP',
@@ -84,28 +87,68 @@ def migrate_db_schema():
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "whatsapp_sent_at" TIMESTAMP',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "site_id" INTEGER',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "resolved_at" TIMESTAMP',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_user_phone" VARCHAR(100)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_group_id" VARCHAR(150)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_provider" VARCHAR(50) DEFAULT \'callmebot\'',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_api_key" VARCHAR(255)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_account_sid" VARCHAR(255)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_from_number" VARCHAR(100)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_gateway_url" VARCHAR(500)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_enabled" BOOLEAN DEFAULT TRUE',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_send_user" BOOLEAN DEFAULT TRUE',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_send_group" BOOLEAN DEFAULT TRUE',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "email_to" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_host" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_port" INTEGER DEFAULT 587',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_user" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_password" VARCHAR(255)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_enabled" BOOLEAN DEFAULT TRUE',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_user_phone" VARCHAR(255)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_group_id" VARCHAR(255)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_provider" VARCHAR(50) DEFAULT \'callmebot\'',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_api_key" VARCHAR(255)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_api_url" VARCHAR(500)',
     ]
-    for sql in migrations:
-        try:
-            with engine.begin() as conn:
-                conn.execute(text(sql))
-        except Exception as e:
-            logger.debug(f"Migration skipped: {e}")
+
+    if is_sqlite:
+        with engine.begin() as conn:
+            inspector = inspect(conn)
+            tables = inspector.get_table_names()
+            sqlite_columns = {
+                "servers": [
+                    ("agent_api_key", "VARCHAR"),
+                    ("agent_installed", "BOOLEAN DEFAULT 0"),
+                    ("agent_last_seen", "TIMESTAMP"),
+                ],
+                "alerts": [
+                    ("notification_sent", "BOOLEAN DEFAULT 0"),
+                    ("teams_sent_at", "TIMESTAMP"),
+                    ("email_sent_at", "TIMESTAMP"),
+                    ("whatsapp_sent_at", "TIMESTAMP"),
+                    ("site_id", "INTEGER"),
+                    ("resolved_at", "TIMESTAMP"),
+                ],
+                "alert_configs": [
+                    ("email_to", "VARCHAR(255)"),
+                    ("smtp_host", "VARCHAR(255)"),
+                    ("smtp_port", "INTEGER DEFAULT 587"),
+                    ("smtp_user", "VARCHAR(255)"),
+                    ("smtp_password", "VARCHAR(255)"),
+                    ("whatsapp_enabled", "BOOLEAN DEFAULT 1"),
+                    ("whatsapp_user_phone", "VARCHAR(255)"),
+                    ("whatsapp_group_id", "VARCHAR(255)"),
+                    ("whatsapp_provider", "VARCHAR(50) DEFAULT 'callmebot'"),
+                    ("whatsapp_api_key", "VARCHAR(255)"),
+                    ("whatsapp_api_url", "VARCHAR(500)"),
+                ],
+            }
+            for table, cols in sqlite_columns.items():
+                if table in tables:
+                    existing = [col["name"] for col in inspector.get_columns(table)]
+                    for col_name, col_type in cols:
+                        if col_name not in existing:
+                            try:
+                                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{col_name}" {col_type}'))
+                            except Exception as ex:
+                                logger.debug(f"SQLite migration notice ({table}.{col_name}): {ex}")
+    else:
+        for sql in pg_migrations:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(sql))
+            except Exception as e:
+                logger.debug(f"PostgreSQL migration skipped: {e}")
+                
     logger.info("migrate_db_schema: complete")
 
 
@@ -126,8 +169,14 @@ def fleet_background_sync_job():
     db = next(get_db())
     try:
         all_servers = db.query(Server).all()
+        now = datetime.utcnow()
         for server in all_servers:
-            if server.agent_installed and server.data_source == "agent":
+            # Preserve active agents — do not overwrite with periodic scans if agent is live
+            is_agent_live = server.agent_installed and (
+                server.data_source == "agent" or
+                (server.agent_last_seen and (now - server.agent_last_seen).total_seconds() < 900)
+            )
+            if is_agent_live:
                 continue
             try:
                 scan_server_projects(db, server, triggered_by="scheduler")
@@ -341,7 +390,6 @@ app.include_router(dashboard_spec.router)
 app.include_router(monitoring_router.router)
 app.include_router(alerts_router.router)
 app.include_router(agent_router.router)
-app.include_router(agent_router.router, prefix="/api")
 
 
 @app.get("/health")

@@ -381,9 +381,6 @@ class MalwareAlert(Base):
     severity = Column(String(20), default="critical")
     details = Column(Text, nullable=True)
     is_resolved = Column(Boolean, default=False)
-    teams_sent_at = Column(DateTime, nullable=True)
-    email_sent_at = Column(DateTime, nullable=True)
-    whatsapp_sent_at = Column(DateTime, nullable=True)
     detected_at = Column(DateTime, default=datetime.utcnow, index=True)
     resolved_at = Column(DateTime, nullable=True)
 
@@ -396,19 +393,16 @@ class AlertConfig(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     teams_webhook_url = Column(String(500), nullable=True)
-    whatsapp_user_phone = Column(String(100), nullable=True)
-    whatsapp_group_id = Column(String(150), nullable=True)
-    whatsapp_provider = Column(String(50), default="callmebot")  # callmebot, twilio, gateway
-    whatsapp_api_key = Column(String(255), nullable=True)
-    whatsapp_account_sid = Column(String(255), nullable=True)
-    whatsapp_from_number = Column(String(100), nullable=True)
-    whatsapp_gateway_url = Column(String(500), nullable=True)
-    whatsapp_enabled = Column(Boolean, default=True)
-    whatsapp_send_user = Column(Boolean, default=True)
-    whatsapp_send_group = Column(Boolean, default=True)
     email_to = Column(String(255), nullable=True)
     smtp_host = Column(String(255), nullable=True)
     smtp_port = Column(Integer, default=587)
     smtp_user = Column(String(255), nullable=True)
     smtp_password = Column(String(255), nullable=True)
+    # WhatsApp User & Group notification settings
+    whatsapp_enabled = Column(Boolean, default=True)
+    whatsapp_user_phone = Column(String(255), nullable=True)
+    whatsapp_group_id = Column(String(255), nullable=True)
+    whatsapp_provider = Column(String(50), default="callmebot")  # callmebot, twilio, gateway
+    whatsapp_api_key = Column(String(255), nullable=True)
+    whatsapp_api_url = Column(String(500), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

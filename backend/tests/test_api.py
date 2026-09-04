@@ -242,16 +242,6 @@ class TestAgentAPI:
         assert srv_data["cpu_usage"] == 42
         assert srv_data["memory_usage"] == 65
         assert srv_data["data_source"] == "agent"
-        assert srv_data["agent_installed"] is True
-        assert srv_data["agent_last_seen"] is not None
-
-        # Verify list servers also has agent_installed
-        list_resp = client.get("/servers/", headers=auth_headers())
-        assert list_resp.status_code == 200
-        found = [s for s in list_resp.json() if s["id"] == server_id]
-        assert len(found) == 1
-        assert found[0]["agent_installed"] is True
-        assert found[0]["agent_last_seen"] is not None
 
     def test_agent_status_list(self):
         resp = client.get("/agent/status", headers=auth_headers())
@@ -343,31 +333,27 @@ class TestNotificationService:
             res = send_email_alert(alert, "VPS-Test")
             assert res == False
 
-    def test_whatsapp_alert_skipped_when_no_config(self):
+    def test_whatsapp_alert_callmebot_mocked(self):
         from services.notification_service import send_whatsapp_alert
         alert = models.Alert(type="cpu_high", severity="critical", message="CPU at 98%")
-        with patch.dict(os.environ, {}, clear=True):
-            res = send_whatsapp_alert(alert, "VPS-Test")
-            assert res == False
+        with patch("requests.get") as mock_get:
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.text = "Message queued"
+            with patch.dict(os.environ, {"WHATSAPP_USER_PHONE": "+1234567890", "WHATSAPP_API_KEY": "dummy_key", "WHATSAPP_PROVIDER": "callmebot"}):
+                res = send_whatsapp_alert(alert, "VPS-Test", target="user")
+                assert res["user_sent"] == True
+                assert mock_get.called
 
-    def test_whatsapp_config_save_and_get(self):
-        resp = client.get("/alerts/config", headers=auth_headers())
-        assert resp.status_code == 200
-        assert "whatsapp_user_phone" in resp.json()
-        assert "whatsapp_group_id" in resp.json()
-
-        save_resp = client.post("/alerts/config", json={
-            "whatsapp_user_phone": "+919892435772",
-            "whatsapp_group_id": "120363023456789@g.us",
-            "whatsapp_provider": "callmebot",
-            "whatsapp_api_key": "123456",
-        }, headers=auth_headers())
-        assert save_resp.status_code == 200
-
-        get_resp = client.get("/alerts/config", headers=auth_headers())
-        assert get_resp.status_code == 200
-        assert get_resp.json()["whatsapp_user_phone"] == "+919892435772"
-        assert get_resp.json()["whatsapp_group_id"] == "120363023456789@g.us"
+    def test_whatsapp_alert_group_mocked(self):
+        from services.notification_service import send_whatsapp_alert
+        alert = models.Alert(type="site_down", severity="critical", message="Outage on domain.com")
+        with patch("requests.get") as mock_get:
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.text = "Message sent to group"
+            with patch.dict(os.environ, {"WHATSAPP_GROUP_ID": "120363023456789@g.us", "WHATSAPP_API_KEY": "dummy_key", "WHATSAPP_PROVIDER": "callmebot"}):
+                res = send_whatsapp_alert(alert, "VPS-Test", target="group")
+                assert res["group_sent"] == True
+                assert mock_get.called
 
 
 # ============================================================

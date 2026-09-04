@@ -12,6 +12,8 @@ mlflow.db
 mlruns/
 backend/mlflow.db
 backend/mlruns/
+*.db
+backend/*.db
 
 # ML model artifacts (do not commit binaries to git)
 *.pkl

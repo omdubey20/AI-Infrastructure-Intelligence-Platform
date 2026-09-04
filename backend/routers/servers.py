@@ -94,7 +94,6 @@ def list_servers(
             "has_whm_creds": bool(s.whm_token),
             "agent_installed": bool(s.agent_installed),
             "agent_last_seen": s.agent_last_seen.isoformat() if s.agent_last_seen else None,
-            "has_agent_key": bool(s.agent_api_key),
         })
     return results
 
@@ -146,7 +145,6 @@ def get_server(
         "last_scanned_at": server.last_scanned_at,
         "agent_installed": bool(server.agent_installed),
         "agent_last_seen": server.agent_last_seen.isoformat() if server.agent_last_seen else None,
-        "has_agent_key": bool(server.agent_api_key),
         "projects_count": len(discoveries),
         "projects": [
             {

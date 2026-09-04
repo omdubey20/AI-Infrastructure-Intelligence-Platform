@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Alert, MalwareAlert, Server, AlertConfig
+from models import Alert, MalwareAlert, Server
 from routers.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
@@ -60,6 +60,7 @@ def get_alerts(
                 "notification_sent": a.notification_sent,
                 "teams_sent_at": a.teams_sent_at.isoformat() if a.teams_sent_at else None,
                 "email_sent_at": a.email_sent_at.isoformat() if a.email_sent_at else None,
+                "whatsapp_sent_at": a.whatsapp_sent_at.isoformat() if a.whatsapp_sent_at else None,
                 "created_at": a.created_at.isoformat() if a.created_at else None,
                 "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
             }
@@ -174,21 +175,18 @@ def trigger_malware_scan(
 
 class AlertConfigSchema(BaseModel):
     teams_webhook_url: Optional[str] = None
-    whatsapp_user_phone: Optional[str] = None
-    whatsapp_group_id: Optional[str] = None
-    whatsapp_provider: Optional[str] = "callmebot"
-    whatsapp_api_key: Optional[str] = None
-    whatsapp_account_sid: Optional[str] = None
-    whatsapp_from_number: Optional[str] = None
-    whatsapp_gateway_url: Optional[str] = None
-    whatsapp_enabled: Optional[bool] = True
-    whatsapp_send_user: Optional[bool] = True
-    whatsapp_send_group: Optional[bool] = True
     email_to: Optional[str] = None
     smtp_host: Optional[str] = None
     smtp_port: Optional[int] = 587
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
+    # WhatsApp User & Group notification settings
+    whatsapp_enabled: Optional[bool] = True
+    whatsapp_user_phone: Optional[str] = None
+    whatsapp_group_id: Optional[str] = None
+    whatsapp_provider: Optional[str] = "callmebot"
+    whatsapp_api_key: Optional[str] = None
+    whatsapp_api_url: Optional[str] = None
 
 
 @router.get("/config")
@@ -203,25 +201,8 @@ def get_alert_config(
     env_smtp = _get_smtp_config(db)
     env_wa = _get_whatsapp_config(db)
 
-    wa_configured = bool(
-        env_wa.get("enabled", True) and
-        (env_wa.get("user_phone") or env_wa.get("group_id")) and
-        (env_wa.get("api_key") or env_wa.get("gateway_url") or env_wa.get("provider") == "gateway")
-    )
-
     return {
         "teams_webhook_url": cfg.teams_webhook_url if (cfg and cfg.teams_webhook_url) else env_webhook or "",
-        "whatsapp_user_phone": cfg.whatsapp_user_phone if (cfg and cfg.whatsapp_user_phone) else env_wa.get("user_phone", ""),
-        "whatsapp_group_id": cfg.whatsapp_group_id if (cfg and cfg.whatsapp_group_id) else env_wa.get("group_id", ""),
-        "whatsapp_provider": cfg.whatsapp_provider if (cfg and cfg.whatsapp_provider) else env_wa.get("provider", "callmebot"),
-        "whatsapp_api_key": cfg.whatsapp_api_key if (cfg and cfg.whatsapp_api_key) else env_wa.get("api_key", ""),
-        "whatsapp_account_sid": cfg.whatsapp_account_sid if (cfg and cfg.whatsapp_account_sid) else env_wa.get("account_sid", ""),
-        "whatsapp_from_number": cfg.whatsapp_from_number if (cfg and cfg.whatsapp_from_number) else env_wa.get("from_number", ""),
-        "whatsapp_gateway_url": cfg.whatsapp_gateway_url if (cfg and cfg.whatsapp_gateway_url) else env_wa.get("gateway_url", ""),
-        "whatsapp_enabled": cfg.whatsapp_enabled if (cfg and cfg.whatsapp_enabled is not None) else env_wa.get("enabled", True),
-        "whatsapp_send_user": cfg.whatsapp_send_user if (cfg and cfg.whatsapp_send_user is not None) else env_wa.get("send_user", True),
-        "whatsapp_send_group": cfg.whatsapp_send_group if (cfg and cfg.whatsapp_send_group is not None) else env_wa.get("send_group", True),
-        "whatsapp_configured": wa_configured,
         "email_to": cfg.email_to if (cfg and cfg.email_to) else env_smtp.get("to", ""),
         "smtp_host": cfg.smtp_host if (cfg and cfg.smtp_host) else env_smtp.get("host", ""),
         "smtp_port": cfg.smtp_port if (cfg and cfg.smtp_port) else env_smtp.get("port", 587),
@@ -229,6 +210,14 @@ def get_alert_config(
         "smtp_password": cfg.smtp_password if (cfg and cfg.smtp_password) else env_smtp.get("password", ""),
         "teams_configured": bool(env_webhook),
         "email_configured": bool(env_smtp.get("host") and env_smtp.get("user") and env_smtp.get("to")),
+        # WhatsApp User & Group configurations
+        "whatsapp_enabled": cfg.whatsapp_enabled if (cfg and cfg.whatsapp_enabled is not None) else env_wa.get("enabled", True),
+        "whatsapp_user_phone": cfg.whatsapp_user_phone if (cfg and cfg.whatsapp_user_phone) else env_wa.get("user_phone", ""),
+        "whatsapp_group_id": cfg.whatsapp_group_id if (cfg and cfg.whatsapp_group_id) else env_wa.get("group_id", ""),
+        "whatsapp_provider": cfg.whatsapp_provider if (cfg and cfg.whatsapp_provider) else env_wa.get("provider", "callmebot"),
+        "whatsapp_api_key": cfg.whatsapp_api_key if (cfg and cfg.whatsapp_api_key) else env_wa.get("api_key", ""),
+        "whatsapp_api_url": cfg.whatsapp_api_url if (cfg and cfg.whatsapp_api_url) else env_wa.get("api_url", ""),
+        "whatsapp_configured": bool((env_wa.get("user_phone") or env_wa.get("group_id")) and env_wa.get("enabled")),
     }
 
 
@@ -245,63 +234,74 @@ def save_alert_config(
         db.add(cfg)
 
     if payload.teams_webhook_url is not None: cfg.teams_webhook_url = payload.teams_webhook_url.strip()
-    if payload.whatsapp_user_phone is not None: cfg.whatsapp_user_phone = payload.whatsapp_user_phone.strip()
-    if payload.whatsapp_group_id is not None: cfg.whatsapp_group_id = payload.whatsapp_group_id.strip()
-    if payload.whatsapp_provider is not None: cfg.whatsapp_provider = payload.whatsapp_provider.strip()
-    if payload.whatsapp_api_key is not None: cfg.whatsapp_api_key = payload.whatsapp_api_key.strip()
-    if payload.whatsapp_account_sid is not None: cfg.whatsapp_account_sid = payload.whatsapp_account_sid.strip()
-    if payload.whatsapp_from_number is not None: cfg.whatsapp_from_number = payload.whatsapp_from_number.strip()
-    if payload.whatsapp_gateway_url is not None: cfg.whatsapp_gateway_url = payload.whatsapp_gateway_url.strip()
-    if payload.whatsapp_enabled is not None: cfg.whatsapp_enabled = payload.whatsapp_enabled
-    if payload.whatsapp_send_user is not None: cfg.whatsapp_send_user = payload.whatsapp_send_user
-    if payload.whatsapp_send_group is not None: cfg.whatsapp_send_group = payload.whatsapp_send_group
-
     if payload.email_to is not None: cfg.email_to = payload.email_to.strip()
     if payload.smtp_host is not None: cfg.smtp_host = payload.smtp_host.strip()
     if payload.smtp_port is not None: cfg.smtp_port = payload.smtp_port
     if payload.smtp_user is not None: cfg.smtp_user = payload.smtp_user.strip()
     if payload.smtp_password is not None: cfg.smtp_password = payload.smtp_password.strip()
 
+    # WhatsApp settings
+    if payload.whatsapp_enabled is not None: cfg.whatsapp_enabled = payload.whatsapp_enabled
+    if payload.whatsapp_user_phone is not None: cfg.whatsapp_user_phone = payload.whatsapp_user_phone.strip()
+    if payload.whatsapp_group_id is not None: cfg.whatsapp_group_id = payload.whatsapp_group_id.strip()
+    if payload.whatsapp_provider is not None: cfg.whatsapp_provider = payload.whatsapp_provider.strip()
+    if payload.whatsapp_api_key is not None: cfg.whatsapp_api_key = payload.whatsapp_api_key.strip()
+    if payload.whatsapp_api_url is not None: cfg.whatsapp_api_url = payload.whatsapp_api_url.strip()
+
     db.commit()
     return {"message": "Notification configuration saved successfully!"}
 
 
-@router.post("/test-whatsapp")
-def test_whatsapp_alert(
+@router.post("/test-whatsapp-user")
+def test_whatsapp_user(
     db: Session = Depends(get_db),
     current_user=Depends(require_role(["admin", "devops"]))
 ):
-    """Send an instant test alert to configured WhatsApp user phone and/or WhatsApp group."""
+    """Send an instant test alert to configured WhatsApp user."""
     from services.notification_service import send_whatsapp_alert, _get_whatsapp_config
     wa_cfg = _get_whatsapp_config(db)
-    user_p = wa_cfg.get("user_phone", "").strip()
-    grp_id = wa_cfg.get("group_id", "").strip()
-
-    if not user_p and not grp_id:
-        raise HTTPException(
-            status_code=400,
-            detail="WhatsApp settings incomplete. Please provide a WhatsApp User Phone Number and/or WhatsApp Group ID."
-        )
-
-    targets = []
-    if user_p and wa_cfg.get("send_user", True): targets.append(f"User ({user_p})")
-    if grp_id and wa_cfg.get("send_group", True): targets.append(f"Group ({grp_id})")
-    target_str = " and ".join(targets) if targets else "recipient"
+    if not wa_cfg.get("user_phone"):
+        raise HTTPException(status_code=400, detail="WhatsApp User Phone Number is not configured.")
 
     dummy_alert = Alert(
         server_id=None,
-        type="test_notification",
+        type="whatsapp_test",
         severity="info",
-        message="🚀 Test alert from AI Infrastructure Intelligence Platform. Your WhatsApp integration is connected and working!",
-        created_at=datetime.utcnow(),
+        message="🚀 Test notification from AI Infrastructure Intelligence Platform. Your WhatsApp user alert channel is live!",
+        created_at=datetime.utcnow()
     )
-    ok = send_whatsapp_alert(dummy_alert, server_name="Production Control Center", db=db)
-    if not ok:
-        return {
-            "message": f"WhatsApp test notification dispatched to {target_str}. If message is not received, verify API key / gateway settings."
-        }
+    res = send_whatsapp_alert(dummy_alert, server_name="Production Control Center", target="user", db=db)
+    if not res.get("user_sent"):
+        detail = "; ".join(res.get("errors", [])) or "Failed to deliver WhatsApp test message. Please verify your phone number and API key."
+        raise HTTPException(status_code=500, detail=detail)
 
-    return {"message": f"✅ WhatsApp test alert successfully delivered to {target_str}!"}
+    return {"message": "✅ Test alert delivered successfully to WhatsApp User!"}
+
+
+@router.post("/test-whatsapp-group")
+def test_whatsapp_group(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(["admin", "devops"]))
+):
+    """Send an instant test alert to configured WhatsApp group."""
+    from services.notification_service import send_whatsapp_alert, _get_whatsapp_config
+    wa_cfg = _get_whatsapp_config(db)
+    if not wa_cfg.get("group_id"):
+        raise HTTPException(status_code=400, detail="WhatsApp Group ID / Name is not configured.")
+
+    dummy_alert = Alert(
+        server_id=None,
+        type="whatsapp_group_test",
+        severity="info",
+        message="👥 Test notification from AI Infrastructure Intelligence Platform. Your WhatsApp group alert channel is connected!",
+        created_at=datetime.utcnow()
+    )
+    res = send_whatsapp_alert(dummy_alert, server_name="Production Control Center", target="group", db=db)
+    if not res.get("group_sent"):
+        detail = "; ".join(res.get("errors", [])) or "Failed to deliver WhatsApp test message to group. Please check Group ID and API key."
+        raise HTTPException(status_code=500, detail=detail)
+
+    return {"message": "✅ Test alert delivered successfully to WhatsApp Group!"}
 
 
 @router.post("/test-teams")

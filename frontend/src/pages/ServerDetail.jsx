@@ -27,8 +27,7 @@ export default function ServerDetail() {
 
   const fetchAgentSetup = async () => {
     try {
-      const originParam = typeof window !== 'undefined' && window.location.origin ? `?origin=${encodeURIComponent(window.location.origin)}` : '';
-      const res = await api.get(`/agent/setup-command/${id}${originParam}`);
+      const res = await api.get(`/agent/setup-command/${id}`);
       let data = res.data;
       if (data && data.api_key && typeof window !== 'undefined' && window.location.origin) {
         const origin = window.location.origin;
@@ -178,7 +177,7 @@ export default function ServerDetail() {
             {agentSetupData.install_command}
           </pre>
           <p style={{ fontSize: "12px", color: "#64748b", marginTop: "10px" }}>
-            💡 SSH into <code>{server.ip_address}</code> or open cPanel Terminal / WHM as root and run the command above to start real-time telemetry streaming.
+            💡 SSH into <code>{server.ip_address}</code> or open cPanel Terminal as root and run the command above to start 60s CPU/RAM/Disk/Malware telemetry streaming.
           </p>
         </div>
       )}
