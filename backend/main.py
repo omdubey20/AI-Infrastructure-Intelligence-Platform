@@ -341,6 +341,7 @@ app.include_router(dashboard_spec.router)
 app.include_router(monitoring_router.router)
 app.include_router(alerts_router.router)
 app.include_router(agent_router.router)
+app.include_router(agent_router.router, prefix="/api")
 
 
 @app.get("/health")

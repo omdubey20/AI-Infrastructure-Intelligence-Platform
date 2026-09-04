@@ -27,8 +27,16 @@ export default function ServerDetail() {
 
   const fetchAgentSetup = async () => {
     try {
-      const res = await api.get(`/agent/setup-command/${id}`);
-      setAgentSetupData(res.data);
+      const originParam = typeof window !== 'undefined' && window.location.origin ? `?origin=${encodeURIComponent(window.location.origin)}` : '';
+      const res = await api.get(`/agent/setup-command/${id}${originParam}`);
+      let data = res.data;
+      if (data && data.api_key && typeof window !== 'undefined' && window.location.origin) {
+        const origin = window.location.origin;
+        if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
+          data.install_command = `curl -sSL ${origin}/agent/install.sh | bash -s -- --api-key=${data.api_key} --url=${origin}`;
+        }
+      }
+      setAgentSetupData(data);
     } catch (e) {
       console.error("fetchAgentSetup error:", e);
     }

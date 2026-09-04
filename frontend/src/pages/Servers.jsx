@@ -31,14 +31,48 @@ export default function Servers() {
     setAgentLoading(true);
     setCopied(false);
     try {
-      const res = await api.get(`/agent/setup-command/${s.id}`);
-      setAgentSetupData(res.data);
+      const originParam = typeof window !== 'undefined' && window.location.origin ? `?origin=${encodeURIComponent(window.location.origin)}` : '';
+      const res = await api.get(`/agent/setup-command/${s.id}${originParam}`);
+      let data = res.data;
+      if (data && data.api_key && typeof window !== 'undefined' && window.location.origin) {
+        const origin = window.location.origin;
+        if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
+          data.install_command = `curl -sSL ${origin}/agent/install.sh | bash -s -- --api-key=${data.api_key} --url=${origin}`;
+        }
+      }
+      setAgentSetupData(data);
     } catch (err) {
       console.error("Failed to load agent setup command:", err);
     } finally {
       setAgentLoading(false);
     }
   };
+
+  // Auto-poll agent setup data while modal is open so status switches to Active automatically
+  useEffect(() => {
+    if (!agentModalServer) return;
+    const interval = setInterval(async () => {
+      try {
+        const originParam = typeof window !== 'undefined' && window.location.origin ? `?origin=${encodeURIComponent(window.location.origin)}` : '';
+        const res = await api.get(`/agent/setup-command/${agentModalServer.id}${originParam}`);
+        let data = res.data;
+        if (data && data.api_key && typeof window !== 'undefined' && window.location.origin) {
+          const origin = window.location.origin;
+          if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
+            data.install_command = `curl -sSL ${origin}/agent/install.sh | bash -s -- --api-key=${data.api_key} --url=${origin}`;
+          }
+        }
+        setAgentSetupData(data);
+        if (data.agent_installed) {
+          // Update in server list directly
+          setServers(prev => prev.map(srv => srv.id === agentModalServer.id ? { ...srv, agent_installed: true, data_source: 'agent', status: 'active' } : srv));
+        }
+      } catch (err) {
+        // silent
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [agentModalServer]);
 
   const handleCopyCommand = (text) => {
     navigator.clipboard.writeText(text);
@@ -229,7 +263,6 @@ export default function Servers() {
                       <div style={{ display: "flex", gap: "6px" }}>
                         {(() => {
                           const isInstalled = Boolean(s.agent_installed || s.data_source === "agent");
-                          const isOnline = isInstalled && (!s.agent_last_seen || (Date.now() - new Date(s.agent_last_seen).getTime() < 15 * 60 * 1000));
                           return (
                             <button
                               onClick={(e) => handleOpenAgentModal(s, e)}
@@ -237,28 +270,12 @@ export default function Servers() {
                               style={{
                                 padding: "4px 10px",
                                 fontSize: "11px",
-                                background: !isInstalled
-                                  ? "rgba(56,189,248,0.15)"
-                                  : isOnline
-                                  ? "rgba(74,222,128,0.15)"
-                                  : "rgba(251,191,36,0.15)",
-                                color: !isInstalled
-                                  ? "#38bdf8"
-                                  : isOnline
-                                  ? "#4ade80"
-                                  : "#fbbf24",
-                                border: !isInstalled
-                                  ? "1px solid rgba(56,189,248,0.3)"
-                                  : isOnline
-                                  ? "1px solid rgba(74,222,128,0.3)"
-                                  : "1px solid rgba(251,191,36,0.3)"
+                                background: isInstalled ? "rgba(74,222,128,0.15)" : "rgba(56,189,248,0.15)",
+                                color: isInstalled ? "#4ade80" : "#38bdf8",
+                                border: isInstalled ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(56,189,248,0.3)"
                               }}
                             >
-                              {!isInstalled
-                                ? "🔌 Connect Agent"
-                                : isOnline
-                                ? "🟢 Agent Active"
-                                : "🟡 Agent Inactive"}
+                              {isInstalled ? "🟢 Agent Active" : "🔌 Connect Agent"}
                             </button>
                           );
                         })()}
