@@ -83,21 +83,23 @@ def migrate_db_schema():
         'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_last_seen" TIMESTAMP',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "notification_sent" BOOLEAN DEFAULT FALSE',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "teams_sent_at" TIMESTAMP',
-        'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "email_sent_at" TIMESTAMP',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "whatsapp_sent_at" TIMESTAMP',
+        'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "email_sent_at" TIMESTAMP',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "site_id" INTEGER',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "resolved_at" TIMESTAMP',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_enabled" BOOLEAN DEFAULT TRUE',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_user_phone" VARCHAR(50)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_group_id" VARCHAR(100)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_provider" VARCHAR(50) DEFAULT \'callmebot\'',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_api_key" VARCHAR(255)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_gateway_url" VARCHAR(500)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_account_sid" VARCHAR(100)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_from_phone" VARCHAR(50)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "email_to" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_host" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_port" INTEGER DEFAULT 587',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_user" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_password" VARCHAR(255)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_enabled" BOOLEAN DEFAULT TRUE',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_user_phone" VARCHAR(255)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_group_id" VARCHAR(255)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_provider" VARCHAR(50) DEFAULT \'callmebot\'',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_api_key" VARCHAR(255)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_api_url" VARCHAR(500)',
     ]
 
     if is_sqlite:
@@ -113,23 +115,25 @@ def migrate_db_schema():
                 "alerts": [
                     ("notification_sent", "BOOLEAN DEFAULT 0"),
                     ("teams_sent_at", "TIMESTAMP"),
-                    ("email_sent_at", "TIMESTAMP"),
                     ("whatsapp_sent_at", "TIMESTAMP"),
+                    ("email_sent_at", "TIMESTAMP"),
                     ("site_id", "INTEGER"),
                     ("resolved_at", "TIMESTAMP"),
                 ],
                 "alert_configs": [
+                    ("whatsapp_enabled", "BOOLEAN DEFAULT 1"),
+                    ("whatsapp_user_phone", "VARCHAR(50)"),
+                    ("whatsapp_group_id", "VARCHAR(100)"),
+                    ("whatsapp_provider", "VARCHAR(50) DEFAULT 'callmebot'"),
+                    ("whatsapp_api_key", "VARCHAR(255)"),
+                    ("whatsapp_gateway_url", "VARCHAR(500)"),
+                    ("whatsapp_account_sid", "VARCHAR(100)"),
+                    ("whatsapp_from_phone", "VARCHAR(50)"),
                     ("email_to", "VARCHAR(255)"),
                     ("smtp_host", "VARCHAR(255)"),
                     ("smtp_port", "INTEGER DEFAULT 587"),
                     ("smtp_user", "VARCHAR(255)"),
                     ("smtp_password", "VARCHAR(255)"),
-                    ("whatsapp_enabled", "BOOLEAN DEFAULT 1"),
-                    ("whatsapp_user_phone", "VARCHAR(255)"),
-                    ("whatsapp_group_id", "VARCHAR(255)"),
-                    ("whatsapp_provider", "VARCHAR(50) DEFAULT 'callmebot'"),
-                    ("whatsapp_api_key", "VARCHAR(255)"),
-                    ("whatsapp_api_url", "VARCHAR(500)"),
                 ],
             }
             for table, cols in sqlite_columns.items():
@@ -148,7 +152,6 @@ def migrate_db_schema():
                     conn.execute(text(sql))
             except Exception as e:
                 logger.debug(f"PostgreSQL migration skipped: {e}")
-                
     logger.info("migrate_db_schema: complete")
 
 
@@ -169,14 +172,8 @@ def fleet_background_sync_job():
     db = next(get_db())
     try:
         all_servers = db.query(Server).all()
-        now = datetime.utcnow()
         for server in all_servers:
-            # Preserve active agents — do not overwrite with periodic scans if agent is live
-            is_agent_live = server.agent_installed and (
-                server.data_source == "agent" or
-                (server.agent_last_seen and (now - server.agent_last_seen).total_seconds() < 900)
-            )
-            if is_agent_live:
+            if server.agent_installed and server.data_source == "agent":
                 continue
             try:
                 scan_server_projects(db, server, triggered_by="scheduler")

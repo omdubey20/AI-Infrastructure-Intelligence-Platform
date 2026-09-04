@@ -378,12 +378,7 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
         if hasattr(server, key):
             setattr(server, key, val)
 
-    is_agent_live = bool(server.agent_installed and (
-        server.data_source == "agent" or
-        (server.agent_last_seen and (datetime.utcnow() - server.agent_last_seen).total_seconds() < 900)
-    ))
-    if not is_agent_live:
-        server.data_source = "ssh"
+    server.data_source = "ssh"
     server.status = "active"
     server.scan_status = "success"
     server.scan_error = None
@@ -521,12 +516,8 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                 server.load_avg_15 = load15
                 server.cpu_usage = min(95, max(5, int(load1 * 25))) if load1 > 0 else (server.cpu_usage or 15)
                 server.memory_usage = min(95, max(10, int(load5 * 20))) if load5 > 0 else (server.memory_usage or 35)
-                is_agent_live = bool(server.agent_installed and (
-                    server.data_source == "agent" or
-                    (server.agent_last_seen and (datetime.utcnow() - server.agent_last_seen).total_seconds() < 900)
-                ))
-                if not is_agent_live:
-                    server.data_source = "whm"
+                server.disk_usage = disk_pct if disk_pct > 0 else (server.disk_usage or 35)
+                server.data_source = "whm"
                 server.status = "active"
                 server.scan_status = "success"
                 server.scan_error = None

@@ -58,30 +58,12 @@ class AgentReport(BaseModel):
 
 
 @router.post("/report")
-def receive_agent_report(report: AgentReport, request: Request, db: Session = Depends(get_db)):
+def receive_agent_report(report: AgentReport, db: Session = Depends(get_db)):
     """Receive telemetry report from an installed agent."""
     # Authenticate by API key
     server = db.query(Server).filter(Server.agent_api_key == report.api_key).first()
-    
     if not server:
-        # Auto-Healing Fallback: Match by remote client IP or reported hostname
-        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else None)
-        hostname = (report.hostname or "").strip()
-        
-        candidate = None
-        if client_ip:
-            candidate = db.query(Server).filter(Server.ip_address == client_ip).first()
-        if not candidate and hostname:
-            candidate = db.query(Server).filter(
-                (Server.hostname == hostname) | (Server.name == hostname)
-            ).first()
-            
-        if candidate:
-            logger.info(f"Agent auto-healing: Linking agent key {report.api_key[:12]}... to server {candidate.name} (IP: {candidate.ip_address})")
-            candidate.agent_api_key = report.api_key
-            server = candidate
-        else:
-            raise HTTPException(status_code=401, detail="Invalid agent API key")
+        raise HTTPException(status_code=401, detail="Invalid agent API key")
 
     now = datetime.utcnow()
 
@@ -254,19 +236,6 @@ def generate_agent_key(
     return {"server_id": server_id, "api_key": api_key, "message": "Agent API key generated"}
 
 
-def _get_base_url(request: Request) -> str:
-    env_url = os.getenv("PUBLIC_API_URL") or os.getenv("APP_URL")
-    if env_url:
-        return env_url.rstrip("/")
-    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
-    if railway_domain:
-        return f"https://{railway_domain}".rstrip("/")
-    
-    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme).lower()
-    forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
-    return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
-
-
 @router.get("/setup-command/{server_id}")
 def get_agent_setup_command(
     server_id: int,
@@ -283,7 +252,7 @@ def get_agent_setup_command(
         server.agent_api_key = f"infra_{secrets.token_hex(24)}"
         db.commit()
 
-    base_url = _get_base_url(request)
+    base_url = str(request.base_url).rstrip("/")
     install_command = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key={server.agent_api_key}"
 
     return {
@@ -300,7 +269,7 @@ def get_agent_setup_command(
 @router.get("/install.sh")
 def get_install_script(request: Request):
     """Serve the agent installation script."""
-    base_url = _get_base_url(request)
+    base_url = str(request.base_url).rstrip("/")
 
     script = f"""#!/bin/bash
 # AI Infrastructure Intelligence Platform — Agent Installer
@@ -617,8 +586,6 @@ EOF
 
 chmod +x $AGENT_DIR/infra_agent.py
 
-PYTHON_BIN=\$(which python3 2>/dev/null || which /usr/local/cpanel/3rdparty/bin/python3 2>/dev/null || echo "/usr/bin/python3")
-
 # Create systemd service
 cat > /etc/systemd/system/infra-agent.service << EOF
 [Unit]
@@ -627,7 +594,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=\$PYTHON_BIN $AGENT_DIR/infra_agent.py
+ExecStart=/usr/bin/python3 $AGENT_DIR/infra_agent.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -639,14 +606,12 @@ EOF
 
 systemctl daemon-reload
 systemctl enable infra-agent
-systemctl restart infra-agent
+systemctl start infra-agent
 
-sleep 2
 echo ""
 echo "✅ Infra Intel Agent installed and running!"
-systemctl status infra-agent --no-pager | head -n 8
-echo ""
-echo "   View live streaming logs: journalctl -u infra-agent -f"
+echo "   Service: systemctl status infra-agent"
+echo "   Logs: journalctl -u infra-agent -f"
 echo "   Config: $AGENT_DIR/agent.conf"
 """
     return PlainTextResponse(content=script, media_type="text/plain")

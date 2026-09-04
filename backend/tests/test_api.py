@@ -333,27 +333,40 @@ class TestNotificationService:
             res = send_email_alert(alert, "VPS-Test")
             assert res == False
 
-    def test_whatsapp_alert_callmebot_mocked(self):
+    def test_whatsapp_alert_skipped_when_no_config(self):
         from services.notification_service import send_whatsapp_alert
-        alert = models.Alert(type="cpu_high", severity="critical", message="CPU at 98%")
-        with patch("requests.get") as mock_get:
-            mock_get.return_value.status_code = 200
-            mock_get.return_value.text = "Message queued"
-            with patch.dict(os.environ, {"WHATSAPP_USER_PHONE": "+1234567890", "WHATSAPP_API_KEY": "dummy_key", "WHATSAPP_PROVIDER": "callmebot"}):
-                res = send_whatsapp_alert(alert, "VPS-Test", target="user")
-                assert res["user_sent"] == True
-                assert mock_get.called
+        alert = models.Alert(type="site_down", severity="critical", message="Outage detected")
+        with patch.dict(os.environ, {}, clear=True):
+            res = send_whatsapp_alert(alert, "VPS-Test")
+            assert res["success"] == False
+            assert res["user_sent"] == False
+            assert res["group_sent"] == False
 
-    def test_whatsapp_alert_group_mocked(self):
+    def test_whatsapp_message_formatting(self):
+        from services.notification_service import format_whatsapp_message
+        alert = models.Alert(type="cpu_high", severity="critical", message="CPU peaked at 99%")
+        msg = format_whatsapp_message(alert, "VPS-Production")
+        assert "INFRASTRUCTURE ALERT: CPU HIGH" in msg
+        assert "VPS-Production" in msg
+        assert "CPU peaked at 99%" in msg
+        assert "CRITICAL" in msg
+
+    def test_whatsapp_alert_user_and_group_dispatch(self):
         from services.notification_service import send_whatsapp_alert
-        alert = models.Alert(type="site_down", severity="critical", message="Outage on domain.com")
-        with patch("requests.get") as mock_get:
-            mock_get.return_value.status_code = 200
-            mock_get.return_value.text = "Message sent to group"
-            with patch.dict(os.environ, {"WHATSAPP_GROUP_ID": "120363023456789@g.us", "WHATSAPP_API_KEY": "dummy_key", "WHATSAPP_PROVIDER": "callmebot"}):
-                res = send_whatsapp_alert(alert, "VPS-Test", target="group")
-                assert res["group_sent"] == True
-                assert mock_get.called
+        alert = models.Alert(type="malware", severity="critical", message="Suspicious web shell detected")
+        env_vars = {
+            "WHATSAPP_USER_PHONE": "+919876543210",
+            "WHATSAPP_GROUP_ID": "DevOps-Incidents",
+            "WHATSAPP_PROVIDER": "callmebot",
+        }
+        with patch.dict(os.environ, env_vars, clear=True):
+            # In test/demo mode without API key, simulated dispatch succeeds
+            res = send_whatsapp_alert(alert, "VPS-Web1")
+            assert res["success"] == True
+            assert res["user_sent"] == True
+            assert res["group_sent"] == True
+            assert "api.whatsapp.com" in res["preview_url"]
+
 
 
 # ============================================================

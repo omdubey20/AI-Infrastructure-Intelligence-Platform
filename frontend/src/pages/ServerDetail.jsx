@@ -28,14 +28,7 @@ export default function ServerDetail() {
   const fetchAgentSetup = async () => {
     try {
       const res = await api.get(`/agent/setup-command/${id}`);
-      let data = res.data;
-      if (data && data.api_key && typeof window !== 'undefined' && window.location.origin) {
-        const origin = window.location.origin;
-        if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-          data.install_command = `curl -sSL ${origin}/agent/install.sh | bash -s -- --api-key=${data.api_key} --url=${origin}`;
-        }
-      }
-      setAgentSetupData(data);
+      setAgentSetupData(res.data);
     } catch (e) {
       console.error("fetchAgentSetup error:", e);
     }
@@ -150,15 +143,10 @@ export default function ServerDetail() {
                 1-Line Terminal Install Command for Real-Time Telemetry & Alerts
               </h3>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <span className={agentSetupData.agent_installed ? "badge badge-green" : "badge badge-amber"}>
                 {agentSetupData.agent_installed ? "🟢 Agent Active" : "🟡 Agent Not Connected"}
               </span>
-              {agentSetupData.agent_last_seen && (
-                <span style={{ fontSize: "11px", color: "#64748b" }}>
-                  Last Heartbeat: {new Date(agentSetupData.agent_last_seen).toLocaleTimeString()}
-                </span>
-              )}
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(agentSetupData.install_command);

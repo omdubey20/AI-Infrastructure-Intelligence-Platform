@@ -32,14 +32,7 @@ export default function Servers() {
     setCopied(false);
     try {
       const res = await api.get(`/agent/setup-command/${s.id}`);
-      let data = res.data;
-      if (data && data.api_key && typeof window !== 'undefined' && window.location.origin) {
-        const origin = window.location.origin;
-        if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-          data.install_command = `curl -sSL ${origin}/agent/install.sh | bash -s -- --api-key=${data.api_key} --url=${origin}`;
-        }
-      }
-      setAgentSetupData(data);
+      setAgentSetupData(res.data);
     } catch (err) {
       console.error("Failed to load agent setup command:", err);
     } finally {
@@ -219,8 +212,8 @@ export default function Servers() {
                       </span>
                     </td>
                     <td>
-                      <span className={s.agent_installed || s.data_source === "agent" ? "badge badge-green" : s.data_source === "ssh" ? "badge badge-green" : "badge badge-blue"}>
-                        {s.agent_installed || s.data_source === "agent" ? "🤖 AGENT" : s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"}
+                      <span className={s.data_source === "ssh" ? "badge badge-green" : "badge badge-blue"}>
+                        {s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"}
                       </span>
                     </td>
                     <td>
@@ -234,26 +227,8 @@ export default function Servers() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "6px" }}>
-                        <button
-                          onClick={(e) => handleOpenAgentModal(s, e)}
-                          className="btn-secondary"
-                          style={{
-                            padding: "4px 10px",
-                            fontSize: "11px",
-                            background: s.agent_installed
-                              ? (s.status === "agent_offline" ? "rgba(248,113,113,0.15)" : "rgba(74,222,128,0.15)")
-                              : "rgba(56,189,248,0.15)",
-                            color: s.agent_installed
-                              ? (s.status === "agent_offline" ? "#f87171" : "#4ade80")
-                              : "#38bdf8",
-                            border: s.agent_installed
-                              ? (s.status === "agent_offline" ? "1px solid rgba(248,113,113,0.3)" : "1px solid rgba(74,222,128,0.3)")
-                              : "1px solid rgba(56,189,248,0.3)",
-                          }}
-                        >
-                          {s.agent_installed
-                            ? (s.status === "agent_offline" ? "🔴 Agent Offline" : "🟢 Agent Active")
-                            : "🔌 Connect Agent"}
+                        <button onClick={(e) => handleOpenAgentModal(s, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px", background: s.data_source === "agent" ? "rgba(74,222,128,0.15)" : "rgba(56,189,248,0.15)", color: s.data_source === "agent" ? "#4ade80" : "#38bdf8", border: s.data_source === "agent" ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(56,189,248,0.3)" }}>
+                          {s.data_source === "agent" ? "🟢 Agent Active" : "🔌 Connect Agent"}
                         </button>
                         <button onClick={(e) => handleScanSingle(s.id, s.name, e)} className="btn-secondary" style={{ padding: "4px 10px", fontSize: "11px" }}>
                           ⚡ Scan
@@ -292,23 +267,9 @@ export default function Servers() {
               <div style={{ color: "#94a3b8", padding: "20px 0" }}>Generating agent connection credentials...</div>
             ) : agentSetupData ? (
               <div>
-                {agentSetupData.agent_installed && (
-                  <div style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)", borderRadius: "8px", padding: "12px", marginBottom: "16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div>
-                      <span style={{ color: "#4ade80", fontWeight: 800, fontSize: "13px" }}>🟢 Agent Connected & Telemetry Active</span>
-                      <p style={{ color: "#94a3b8", fontSize: "11px", margin: "2px 0 0" }}>
-                        Last heartbeat: {agentSetupData.agent_last_seen ? new Date(agentSetupData.agent_last_seen).toLocaleString() : "Active now"}
-                      </p>
-                    </div>
-                    <span className="badge badge-green">STREAMING LIVE</span>
-                  </div>
-                )}
-
                 <div style={{ background: "#080e1a", padding: "14px", borderRadius: "8px", border: "1px solid #1e293b", marginBottom: "16px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                    <span style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>
-                      {agentSetupData.agent_installed ? "1-LINE REINSTALL / RECONNECT COMMAND (RUN AS ROOT)" : "1-LINE TERMINAL INSTALL COMMAND (RUN AS ROOT)"}
-                    </span>
+                    <span style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 700 }}>1-LINE TERMINAL INSTALL COMMAND (RUN ON SERVER AS ROOT)</span>
                     <button onClick={() => handleCopyCommand(agentSetupData.install_command)} className="btn-secondary" style={{ padding: "4px 12px", fontSize: "11px", background: copied ? "#22c55e" : "#38bdf8", color: "#080e1a", fontWeight: 800 }}>
                       {copied ? "✓ Copied!" : "📋 Copy Command"}
                     </button>
@@ -332,12 +293,12 @@ export default function Servers() {
                 </div>
 
                 <div style={{ fontSize: "12px", color: "#94a3b8", lineHeight: "1.6", background: "rgba(56,189,248,0.06)", padding: "12px", borderRadius: "8px", border: "1px solid rgba(56,189,248,0.2)" }}>
-                  <p style={{ fontWeight: 800, color: "#38bdf8", marginBottom: "4px" }}>💡 Server Terminal Commands (run on {agentModalServer.ip_address} as root):</p>
-                  <ul style={{ margin: 0, paddingLeft: "18px" }}>
-                    <li><strong>Check status:</strong> <code style={{ color: "#38bdf8" }}>systemctl status infra-agent</code></li>
-                    <li><strong>View live telemetry stream:</strong> <code style={{ color: "#38bdf8" }}>journalctl -u infra-agent -f</code></li>
-                    <li><strong>Restart agent service:</strong> <code style={{ color: "#38bdf8" }}>systemctl restart infra-agent</code></li>
-                  </ul>
+                  <p style={{ fontWeight: 800, color: "#38bdf8", marginBottom: "4px" }}>💡 Installation Steps:</p>
+                  <ol style={{ margin: 0, paddingLeft: "18px" }}>
+                    <li>Copy the terminal command above.</li>
+                    <li>SSH into <code>{agentModalServer.ip_address}</code> or open cPanel Terminal as root.</li>
+                    <li>Paste and execute. The agent runs as a system daemon, auto-starts on boot, and reports CPU, RAM, Disk, Load, and Malware alerts every 60 seconds.</li>
+                  </ol>
                 </div>
               </div>
             ) : (
