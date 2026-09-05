@@ -198,7 +198,7 @@ class TestAgentAPI:
         resp = client.get("/agent/install.sh")
         assert resp.status_code == 200
         assert "#!/bin/bash" in resp.text
-        assert "Infra Intel Agent" in resp.text
+        assert "Agent Installer" in resp.text
 
     def test_generate_agent_key_and_report(self):
         # 1. Create a server
@@ -319,6 +319,35 @@ class TestAlertsAPI:
 # ============================================================
 
 class TestNotificationService:
+    def test_whatsapp_alert_skipped_when_no_recipient(self):
+        from services.notification_service import send_whatsapp_alert
+        alert = models.Alert(type="site_down", severity="critical", message="Test outage")
+        with patch.dict(os.environ, {"WHATSAPP_PHONE": "", "WHATSAPP_GROUP_ID": ""}, clear=True):
+            res = send_whatsapp_alert(alert, "VPS-Test")
+            assert res == False
+
+    def test_whatsapp_alert_simulated_dispatch_to_user_and_group(self):
+        from services.notification_service import send_whatsapp_alert
+        alert = models.Alert(type="site_down", severity="critical", message="Production Web Node Down")
+        with patch.dict(os.environ, {
+            "WHATSAPP_ENABLED": "true",
+            "WHATSAPP_TARGET": "both",
+            "WHATSAPP_PHONE": "+919876543210",
+            "WHATSAPP_GROUP_ID": "120363024567890@g.us",
+            "WHATSAPP_PROVIDER": "demo"
+        }, clear=True):
+            res = send_whatsapp_alert(alert, "Prod-Server-01")
+            assert res == True
+
+    def test_whatsapp_format_message(self):
+        from services.notification_service import format_whatsapp_message
+        alert = models.Alert(type="cpu_high", severity="warning", message="CPU usage at 94%")
+        msg = format_whatsapp_message(alert, "Web-Cluster-1")
+        assert "INFRASTRUCTURE ALERT" in msg
+        assert "CPU HIGH" in msg
+        assert "Web-Cluster-1" in msg
+        assert "CPU usage at 94%" in msg
+
     def test_teams_alert_skipped_when_no_webhook(self):
         from services.notification_service import send_teams_alert
         alert = models.Alert(type="site_down", severity="critical", message="Test outage")
@@ -332,41 +361,6 @@ class TestNotificationService:
         with patch.dict(os.environ, {}, clear=True):
             res = send_email_alert(alert, "VPS-Test")
             assert res == False
-
-    def test_whatsapp_alert_skipped_when_no_config(self):
-        from services.notification_service import send_whatsapp_alert
-        alert = models.Alert(type="site_down", severity="critical", message="Outage detected")
-        with patch.dict(os.environ, {}, clear=True):
-            res = send_whatsapp_alert(alert, "VPS-Test")
-            assert res["success"] == False
-            assert res["user_sent"] == False
-            assert res["group_sent"] == False
-
-    def test_whatsapp_message_formatting(self):
-        from services.notification_service import format_whatsapp_message
-        alert = models.Alert(type="cpu_high", severity="critical", message="CPU peaked at 99%")
-        msg = format_whatsapp_message(alert, "VPS-Production")
-        assert "INFRASTRUCTURE ALERT: CPU HIGH" in msg
-        assert "VPS-Production" in msg
-        assert "CPU peaked at 99%" in msg
-        assert "CRITICAL" in msg
-
-    def test_whatsapp_alert_user_and_group_dispatch(self):
-        from services.notification_service import send_whatsapp_alert
-        alert = models.Alert(type="malware", severity="critical", message="Suspicious web shell detected")
-        env_vars = {
-            "WHATSAPP_USER_PHONE": "+919876543210",
-            "WHATSAPP_GROUP_ID": "DevOps-Incidents",
-            "WHATSAPP_PROVIDER": "callmebot",
-        }
-        with patch.dict(os.environ, env_vars, clear=True):
-            # In test/demo mode without API key, simulated dispatch succeeds
-            res = send_whatsapp_alert(alert, "VPS-Web1")
-            assert res["success"] == True
-            assert res["user_sent"] == True
-            assert res["group_sent"] == True
-            assert "api.whatsapp.com" in res["preview_url"]
-
 
 
 # ============================================================

@@ -333,8 +333,8 @@ class Alert(Base):
     message = Column(String(500), nullable=False)
     is_resolved = Column(Boolean, default=False)
     notification_sent = Column(Boolean, default=False)
-    teams_sent_at = Column(DateTime, nullable=True)
     whatsapp_sent_at = Column(DateTime, nullable=True)
+    teams_sent_at = Column(DateTime, nullable=True)
     email_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     resolved_at = Column(DateTime, nullable=True)
@@ -392,15 +392,21 @@ class AlertConfig(Base):
     __tablename__ = "alert_configs"
 
     id = Column(Integer, primary_key=True, index=True)
-    teams_webhook_url = Column(String(500), nullable=True)
+    # WhatsApp settings (Individual user + Group)
     whatsapp_enabled = Column(Boolean, default=True)
-    whatsapp_user_phone = Column(String(50), nullable=True)
-    whatsapp_group_id = Column(String(100), nullable=True)
-    whatsapp_provider = Column(String(50), default="callmebot")
+    whatsapp_target = Column(String(50), default="both")  # "user", "group", "both"
+    whatsapp_phone = Column(String(50), nullable=True)    # e.g. "+919876543210"
+    whatsapp_group_id = Column(String(100), nullable=True) # e.g. "120363024567890@g.us" or group name/id
+    whatsapp_provider = Column(String(50), default="callmebot") # "callmebot", "twilio", "cloud_api", "demo"
     whatsapp_api_key = Column(String(255), nullable=True)
-    whatsapp_gateway_url = Column(String(500), nullable=True)
     whatsapp_account_sid = Column(String(100), nullable=True)
     whatsapp_from_phone = Column(String(50), nullable=True)
+    whatsapp_gateway_url = Column(String(500), nullable=True)
+
+    # Legacy Webhook / Teams
+    teams_webhook_url = Column(String(500), nullable=True)
+
+    # Email / SMTP
     email_to = Column(String(255), nullable=True)
     smtp_host = Column(String(255), nullable=True)
     smtp_port = Column(Integer, default=587)

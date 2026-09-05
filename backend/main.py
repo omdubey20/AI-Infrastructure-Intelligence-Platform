@@ -72,86 +72,39 @@ def ensure_default_admin():
         db.close()
 
 def migrate_db_schema():
-    """Ensure all required columns exist in PostgreSQL and SQLite without errors."""
-    from sqlalchemy import text, inspect
-    
-    is_sqlite = "sqlite" in str(engine.url)
-    
-    pg_migrations = [
+    """Ensure new columns exist. Uses ADD COLUMN IF NOT EXISTS (PostgreSQL 9.6+). Silently skips on error."""
+    from sqlalchemy import text
+    migrations = [
         'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_api_key" VARCHAR',
         'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_installed" BOOLEAN DEFAULT FALSE',
         'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "agent_last_seen" TIMESTAMP',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "notification_sent" BOOLEAN DEFAULT FALSE',
-        'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "teams_sent_at" TIMESTAMP',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "whatsapp_sent_at" TIMESTAMP',
+        'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "teams_sent_at" TIMESTAMP',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "email_sent_at" TIMESTAMP',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "site_id" INTEGER',
         'ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "resolved_at" TIMESTAMP',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_enabled" BOOLEAN DEFAULT TRUE',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_user_phone" VARCHAR(50)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_target" VARCHAR(50) DEFAULT \'both\'',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_phone" VARCHAR(50)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_group_id" VARCHAR(100)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_provider" VARCHAR(50) DEFAULT \'callmebot\'',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_api_key" VARCHAR(255)',
-        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_gateway_url" VARCHAR(500)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_account_sid" VARCHAR(100)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_from_phone" VARCHAR(50)',
+        'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "whatsapp_gateway_url" VARCHAR(500)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "email_to" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_host" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_port" INTEGER DEFAULT 587',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_user" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_password" VARCHAR(255)',
     ]
-
-    if is_sqlite:
-        with engine.begin() as conn:
-            inspector = inspect(conn)
-            tables = inspector.get_table_names()
-            sqlite_columns = {
-                "servers": [
-                    ("agent_api_key", "VARCHAR"),
-                    ("agent_installed", "BOOLEAN DEFAULT 0"),
-                    ("agent_last_seen", "TIMESTAMP"),
-                ],
-                "alerts": [
-                    ("notification_sent", "BOOLEAN DEFAULT 0"),
-                    ("teams_sent_at", "TIMESTAMP"),
-                    ("whatsapp_sent_at", "TIMESTAMP"),
-                    ("email_sent_at", "TIMESTAMP"),
-                    ("site_id", "INTEGER"),
-                    ("resolved_at", "TIMESTAMP"),
-                ],
-                "alert_configs": [
-                    ("whatsapp_enabled", "BOOLEAN DEFAULT 1"),
-                    ("whatsapp_user_phone", "VARCHAR(50)"),
-                    ("whatsapp_group_id", "VARCHAR(100)"),
-                    ("whatsapp_provider", "VARCHAR(50) DEFAULT 'callmebot'"),
-                    ("whatsapp_api_key", "VARCHAR(255)"),
-                    ("whatsapp_gateway_url", "VARCHAR(500)"),
-                    ("whatsapp_account_sid", "VARCHAR(100)"),
-                    ("whatsapp_from_phone", "VARCHAR(50)"),
-                    ("email_to", "VARCHAR(255)"),
-                    ("smtp_host", "VARCHAR(255)"),
-                    ("smtp_port", "INTEGER DEFAULT 587"),
-                    ("smtp_user", "VARCHAR(255)"),
-                    ("smtp_password", "VARCHAR(255)"),
-                ],
-            }
-            for table, cols in sqlite_columns.items():
-                if table in tables:
-                    existing = [col["name"] for col in inspector.get_columns(table)]
-                    for col_name, col_type in cols:
-                        if col_name not in existing:
-                            try:
-                                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{col_name}" {col_type}'))
-                            except Exception as ex:
-                                logger.debug(f"SQLite migration notice ({table}.{col_name}): {ex}")
-    else:
-        for sql in pg_migrations:
-            try:
-                with engine.begin() as conn:
-                    conn.execute(text(sql))
-            except Exception as e:
-                logger.debug(f"PostgreSQL migration skipped: {e}")
+    for sql in migrations:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(sql))
+        except Exception as e:
+            logger.debug(f"Migration skipped: {e}")
     logger.info("migrate_db_schema: complete")
 
 
