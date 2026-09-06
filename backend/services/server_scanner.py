@@ -111,8 +111,19 @@ def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, 
         data_source=data.get("data_source", "whm"),
         last_synced_at=now,
     )
-    db.add(discovery)
-    return discovery, True
+    try:
+        db.add(discovery)
+        db.flush()
+        return discovery, True
+    except Exception:
+        db.rollback()
+        existing = db.query(ProjectDiscovery).filter(
+            ProjectDiscovery.server_id == server_id,
+            (func.lower(ProjectDiscovery.domain) == domain_val.lower()) | (func.lower(ProjectDiscovery.project_name) == proj_name.lower())
+        ).first()
+        if existing:
+            return existing, False
+        raise
 
 
 def _run(client: paramiko.SSHClient, command: str, timeout: int = 5) -> str:
@@ -287,38 +298,6 @@ def check_ssl(domain: str) -> Tuple[bool, Optional[int]]:
     return False, None
 
 
-def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, bool]:
-    now = datetime.utcnow()
-    proj_name = data["name"]
-    domain_val = data.get("domain") or proj_name
-    owner_val = data.get("owner")
-    path_val = data.get("path", f"/home/{proj_name}/public_html")
-
-    discovery = ProjectDiscovery(
-        server_id=server_id,
-        project_name=proj_name,
-        project_path=path_val,
-        framework=data.get("framework", "php"),
-        language=data.get("language", "php"),
-        owner=owner_val,
-        size_mb=data.get("size_mb", 100),
-        domain=domain_val,
-        days_since_modified=data.get("days_since_modified", 10),
-        dns_points_here=data.get("dns_points_here", True),
-        web_config_active=data.get("web_config_active", True),
-        has_ssl=data.get("has_ssl", True),
-        ssl_expiry_days=data.get("ssl_expiry_days", 60),
-        is_live=data.get("is_live", True),
-        is_inactive=data.get("is_inactive", False),
-        env_type=data.get("env_type", "live"),
-        risk_score=data.get("risk_score", 15),
-        data_source=data.get("data_source", "whm"),
-        last_synced_at=now,
-    )
-    db.add(discovery)
-    return discovery, True
-
-
 def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:
     import time
     start_time = time.time()
@@ -386,6 +365,7 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
 
     raw_projects = discover_projects_via_ssh(client)
     created_count = 0
+    updated_count = 0
     for proj in raw_projects:
         try:
             domain = proj.get("domain") or f"{proj['name']}.local"
@@ -403,8 +383,11 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
                 "risk_score": 15,
                 "data_source": "ssh",
             }
-            upsert_discovery(db, server.id, proj_data)
-            created_count += 1
+            _, created = upsert_discovery(db, server.id, proj_data)
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
         except Exception as e:
             logger.warning(f"Project enrich failed {proj.get('name')}: {e}")
 
@@ -412,7 +395,8 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     client.close()
 
     job.projects_found = len(raw_projects)
-    job.projects_updated = 0
+    job.projects_created = created_count
+    job.projects_updated = updated_count
     job.projects_removed = 0
     job.data_source = "ssh"
 
@@ -420,6 +404,7 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
         "ssh_connected": True,
         "projects_found": len(raw_projects),
         "projects_created": created_count,
+        "projects_updated": updated_count,
         "data_source": "ssh",
     }
 
@@ -533,6 +518,7 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                         unique_accts.append(acc)
 
                 created_count = 0
+                updated_count = 0
 
                 for idx, acc in enumerate(unique_accts):
                     username = acc.get("user", "").strip()
@@ -561,13 +547,25 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                         "risk_score": 15,
                         "data_source": "whm",
                     }
-                    upsert_discovery(db, server.id, proj_data)
-                    created_count += 1
+                    _, created = upsert_discovery(db, server.id, proj_data)
+                    if created:
+                        created_count += 1
+                    else:
+                        updated_count += 1
 
                 db.commit()
                 job.data_source = "whm"
                 job.projects_found = len(unique_accts)
-                return {"ssh_connected": False, "whm_connected": True, "projects_found": len(unique_accts), "data_source": "whm"}
+                job.projects_created = created_count
+                job.projects_updated = updated_count
+                return {
+                    "ssh_connected": False,
+                    "whm_connected": True,
+                    "projects_found": len(unique_accts),
+                    "projects_created": created_count,
+                    "projects_updated": updated_count,
+                    "data_source": "whm",
+                }
         except Exception as e:
             logger.warning(f"WHM scan failed for {server.name}: {e}")
             last_error = str(e)

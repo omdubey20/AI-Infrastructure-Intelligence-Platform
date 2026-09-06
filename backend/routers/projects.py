@@ -64,9 +64,11 @@ def get_projects(
 
     if filter_type == "duplicates":
         query = query.filter(models.ProjectDiscovery.is_duplicate == True)
-    else:
-        # Default: only live active projects (no suspended/inactive accounts)
-        query = query.filter(models.ProjectDiscovery.is_live == True)
+    elif filter_type == "live":
+        query = query.filter(models.ProjectDiscovery.is_live == True, models.ProjectDiscovery.is_duplicate == False)
+    elif filter_type == "inactive":
+        query = query.filter(models.ProjectDiscovery.is_live == False)
+    # filter_type == "all" returns all discovered projects without filtering
 
 
     if server_id:

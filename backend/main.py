@@ -101,6 +101,7 @@ def migrate_db_schema():
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_port" INTEGER DEFAULT 587',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_user" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_password" VARCHAR(255)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_pd_server_project_lower ON project_discoveries (server_id, LOWER(project_name))',
     ]
     for sql in migrations:
         try:

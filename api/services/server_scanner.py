@@ -230,11 +230,38 @@ def check_ssl(domain: str) -> Tuple[bool, Optional[int]]:
 
 
 def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, bool]:
+    """True database UPSERT for ProjectDiscovery — updates existing project in-place or adds new discovery."""
     now = datetime.utcnow()
     proj_name = data["name"]
     domain_val = data.get("domain") or proj_name
     owner_val = data.get("owner")
     path_val = data.get("path", f"/home/{proj_name}/public_html")
+
+    from sqlalchemy import func
+    existing = db.query(ProjectDiscovery).filter(
+        ProjectDiscovery.server_id == server_id,
+        (func.lower(ProjectDiscovery.domain) == domain_val.lower()) | (func.lower(ProjectDiscovery.project_name) == proj_name.lower())
+    ).first()
+
+    if existing:
+        existing.project_name = proj_name
+        existing.project_path = path_val
+        existing.framework = data.get("framework", existing.framework or "php")
+        existing.language = data.get("language", existing.language or "php")
+        existing.owner = owner_val or existing.owner
+        existing.size_mb = data.get("size_mb", existing.size_mb or 100)
+        existing.domain = domain_val
+        existing.dns_points_here = data.get("dns_points_here", True)
+        existing.web_config_active = data.get("web_config_active", True)
+        existing.has_ssl = data.get("has_ssl", True)
+        existing.ssl_expiry_days = data.get("ssl_expiry_days", 60)
+        existing.is_live = data.get("is_live", True)
+        existing.is_inactive = False
+        existing.env_type = data.get("env_type", "live")
+        existing.risk_score = data.get("risk_score", 15)
+        existing.data_source = data.get("data_source", "whm")
+        existing.last_synced_at = now
+        return existing, False
 
     discovery = ProjectDiscovery(
         server_id=server_id,
@@ -257,8 +284,19 @@ def upsert_discovery(db, server_id: int, data: dict) -> Tuple[ProjectDiscovery, 
         data_source=data.get("data_source", "whm"),
         last_synced_at=now,
     )
-    db.add(discovery)
-    return discovery, True
+    try:
+        db.add(discovery)
+        db.flush()
+        return discovery, True
+    except Exception:
+        db.rollback()
+        existing = db.query(ProjectDiscovery).filter(
+            ProjectDiscovery.server_id == server_id,
+            (func.lower(ProjectDiscovery.domain) == domain_val.lower()) | (func.lower(ProjectDiscovery.project_name) == proj_name.lower())
+        ).first()
+        if existing:
+            return existing, False
+        raise
 
 
 def scan_server_projects(db, server, triggered_by: str = "manual") -> dict:

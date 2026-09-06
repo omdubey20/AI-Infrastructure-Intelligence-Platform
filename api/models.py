@@ -5,7 +5,7 @@ Database Models - Expanded Schema
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Boolean, DateTime,
-    ForeignKey, Float, Text, BigInteger, Index
+    ForeignKey, Float, Text, BigInteger, Index, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -144,6 +144,7 @@ class ProjectDiscovery(Base):
         Index("ix_pd_domain", "domain"),
         Index("ix_pd_is_live", "is_live"),
         Index("ix_pd_is_duplicate", "is_duplicate"),
+        UniqueConstraint("server_id", "project_name", name="uq_pd_server_project_name"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
