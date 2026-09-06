@@ -201,13 +201,18 @@ class TestAgentAPI:
         assert "Agent Installer" in resp.text
 
     def test_generate_agent_key_and_report(self):
-        # 1. Create a server
+        # 1. Create a server (or fetch if already created)
         srv_resp = client.post("/servers/", json={
             "name": "Agent Monitored Server",
             "ip_address": "10.10.10.50",
             "environment": "production",
         }, headers=auth_headers())
-        server_id = srv_resp.json()["id"]
+        if srv_resp.status_code in (200, 201):
+            server_id = srv_resp.json()["id"]
+        else:
+            list_resp = client.get("/servers/", headers=auth_headers())
+            matches = [s for s in list_resp.json() if s["ip_address"] == "10.10.10.50"]
+            server_id = matches[0]["id"]
 
         # 2. Generate key
         key_resp = client.post(f"/agent/generate-key/{server_id}", headers=auth_headers())

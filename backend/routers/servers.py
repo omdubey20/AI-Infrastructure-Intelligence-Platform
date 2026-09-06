@@ -187,14 +187,23 @@ def create_server(
 
     create_audit_entry(db, action="create_server", entity_type="server", entity_id=new_server.id, entity_name=new_server.name, user_id=current_user.id)
 
-    # Immediately trigger scan
-    try:
-        scan_server_projects(db, new_server)
-    except Exception as e:
-        logger.warning(f"Initial scan notice for {new_server.name}: {e}")
+    # Immediately trigger initial scan in background thread so API response is instant and non-blocking
+    import threading
+    def _bg_scan(srv_id: int):
+        bg_db = next(get_db())
+        try:
+            target_srv = bg_db.query(Server).filter(Server.id == srv_id).first()
+            if target_srv:
+                scan_server_projects(bg_db, target_srv)
+        except Exception as e:
+            logger.warning(f"Initial background scan notice for server {srv_id}: {e}")
+        finally:
+            bg_db.close()
+
+    threading.Thread(target=_bg_scan, args=(new_server.id,), daemon=True).start()
 
     return {
-        "message": f"Server '{new_server.name}' created and scanned successfully",
+        "message": f"Server '{new_server.name}' created successfully. Initial discovery scan initiated.",
         "id": new_server.id,
         "ip_address": new_server.ip_address
     }

@@ -155,12 +155,13 @@ def fleet_background_sync_job():
 
 
 def agent_heartbeat_check():
-    """Check if agents are still reporting. Flag servers as unreachable if no heartbeat in 3 minutes."""
+    """Check if agents are still reporting. Flag servers as unreachable if no heartbeat in 8 minutes."""
     db = next(get_db())
     try:
-        cutoff = datetime.utcnow() - timedelta(minutes=3)
+        cutoff = datetime.utcnow() - timedelta(minutes=8)
         stale_servers = db.query(Server).filter(
             Server.agent_installed == True,
+            Server.agent_last_seen.isnot(None),
             Server.agent_last_seen < cutoff,
             Server.status != "agent_offline",
         ).all()

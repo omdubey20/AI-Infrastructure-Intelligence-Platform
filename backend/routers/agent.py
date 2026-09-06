@@ -35,6 +35,7 @@ MEM_CRIT_THRESHOLD = 95
 
 class AgentReport(BaseModel):
     api_key: str
+    ip_address: Optional[str] = None
     cpu_usage: Optional[int] = None
     memory_usage: Optional[int] = None
     disk_usage: Optional[int] = None
@@ -58,10 +59,39 @@ class AgentReport(BaseModel):
 
 
 @router.post("/report")
-def receive_agent_report(report: AgentReport, db: Session = Depends(get_db)):
-    """Receive telemetry report from an installed agent."""
-    # Authenticate by API key
+def receive_agent_report(report: AgentReport, request: Request, db: Session = Depends(get_db)):
+    """Receive telemetry report from an installed agent with auto-reconnection recovery."""
+    # 1. Authenticate by API key
     server = db.query(Server).filter(Server.agent_api_key == report.api_key).first()
+
+    # 2. Auto-recovery: If server was re-added or API key rotated, auto-adopt by IP / hostname
+    if not server:
+        client_ips = []
+        if request.client and request.client.host and request.client.host not in ("127.0.0.1", "localhost", "::1"):
+            client_ips.append(request.client.host)
+        f_header = request.headers.get("x-forwarded-for")
+        if f_header:
+            client_ips.extend([ip.strip() for ip in f_header.split(",") if ip.strip()])
+        if getattr(report, "ip_address", None):
+            client_ips.append(report.ip_address)
+
+        for ip in client_ips:
+            matched = db.query(Server).filter(Server.ip_address == ip).first()
+            if matched:
+                server = matched
+                server.agent_api_key = report.api_key
+                server.agent_installed = True
+                logger.info(f"Auto-adopted reporting agent for server {server.name} ({server.ip_address})")
+                break
+
+        if not server and report.hostname:
+            matched = db.query(Server).filter(Server.hostname == report.hostname).first()
+            if matched:
+                server = matched
+                server.agent_api_key = report.api_key
+                server.agent_installed = True
+                logger.info(f"Auto-adopted reporting agent for server {server.name} via hostname {report.hostname}")
+
     if not server:
         raise HTTPException(status_code=401, detail="Invalid agent API key")
 
@@ -115,6 +145,13 @@ def receive_agent_report(report: AgentReport, db: Session = Depends(get_db)):
     server.scan_status = "success"
     server.scan_error = None
     server.risk_score = calculate_server_risk(server)
+
+    # Auto-resolve agent_offline alert if present
+    db.query(Alert).filter(
+        Alert.server_id == server.id,
+        Alert.type == "agent_offline",
+        Alert.is_resolved == False
+    ).update({"is_resolved": True, "resolved_at": now}, synchronize_session=False)
 
     # Store health snapshots for time-series
     metrics_to_record = {
@@ -236,6 +273,25 @@ def generate_agent_key(
     return {"server_id": server_id, "api_key": api_key, "message": "Agent API key generated"}
 
 
+def _get_public_base_url(request: Request) -> str:
+    """Derive the public HTTPS base URL for agent communication, supporting proxies like Railway."""
+    env_url = os.getenv("PUBLIC_API_URL") or os.getenv("BACKEND_URL")
+    if env_url:
+        return env_url.rstrip("/")
+
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+
+    if forwarded_host:
+        proto = forwarded_proto or ("http" if "localhost" in forwarded_host or "127.0.0.1" in forwarded_host else "https")
+        return f"{proto}://{forwarded_host}".rstrip("/")
+
+    base = str(request.base_url).rstrip("/")
+    if "localhost" not in base and "127.0.0.1" not in base and base.startswith("http://"):
+        base = "https://" + base[len("http://"):]
+    return base
+
+
 @router.get("/setup-command/{server_id}")
 def get_agent_setup_command(
     server_id: int,
@@ -252,7 +308,7 @@ def get_agent_setup_command(
         server.agent_api_key = f"infra_{secrets.token_hex(24)}"
         db.commit()
 
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _get_public_base_url(request)
     install_command = f"curl -sSL {base_url}/agent/install.sh | bash -s -- --api-key={server.agent_api_key}"
 
     return {
@@ -269,7 +325,7 @@ def get_agent_setup_command(
 @router.get("/install.sh")
 def get_install_script(request: Request):
     """Serve the agent installation script."""
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _get_public_base_url(request)
 
     script = f"""#!/bin/bash
 # AI Infrastructure Intelligence Platform — Agent Installer
@@ -442,6 +498,15 @@ def get_system_info():
                 break
     except Exception:
         pass
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(1)
+        s.connect(("8.8.8.8", 80))
+        info["ip_address"] = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
     return info
 
 def get_swap_usage():
@@ -463,7 +528,11 @@ def get_swap_usage():
     return 0
 
 def send_report(config, data):
-    url = config["api_url"].rstrip("/") + "/agent/report"
+    raw_url = config["api_url"].rstrip("/") + "/agent/report"
+    # Auto-upgrade to https if remote to prevent 301 redirect dropping POST body
+    if raw_url.startswith("http://") and not any(h in raw_url for h in ("localhost", "127.0.0.1", "::1")):
+        raw_url = "https://" + raw_url[len("http://"):]
+    url = raw_url
     payload = json.dumps(data).encode()
     req = urllib.request.Request(
         url,
@@ -586,6 +655,9 @@ EOF
 
 chmod +x $AGENT_DIR/infra_agent.py
 
+# Detect Python 3 binary dynamically
+PYTHON_BIN=$(command -v python3 || command -v python || echo "/usr/bin/python3")
+
 # Create systemd service
 cat > /etc/systemd/system/infra-agent.service << EOF
 [Unit]
@@ -594,7 +666,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 $AGENT_DIR/infra_agent.py
+ExecStart=$PYTHON_BIN $AGENT_DIR/infra_agent.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
