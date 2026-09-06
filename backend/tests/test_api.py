@@ -198,21 +198,16 @@ class TestAgentAPI:
         resp = client.get("/agent/install.sh")
         assert resp.status_code == 200
         assert "#!/bin/bash" in resp.text
-        assert "Agent Installer" in resp.text
+        assert "Infra Intel Agent" in resp.text
 
     def test_generate_agent_key_and_report(self):
-        # 1. Create a server (or fetch if already created)
+        # 1. Create a server
         srv_resp = client.post("/servers/", json={
             "name": "Agent Monitored Server",
             "ip_address": "10.10.10.50",
             "environment": "production",
         }, headers=auth_headers())
-        if srv_resp.status_code in (200, 201):
-            server_id = srv_resp.json()["id"]
-        else:
-            list_resp = client.get("/servers/", headers=auth_headers())
-            matches = [s for s in list_resp.json() if s["ip_address"] == "10.10.10.50"]
-            server_id = matches[0]["id"]
+        server_id = srv_resp.json()["id"]
 
         # 2. Generate key
         key_resp = client.post(f"/agent/generate-key/{server_id}", headers=auth_headers())
@@ -318,40 +313,69 @@ class TestAlertsAPI:
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
+    def test_alert_config_whatsapp_crud(self):
+        # Save WhatsApp config
+        payload = {
+            "whatsapp_enabled": True,
+            "whatsapp_provider": "callmebot",
+            "whatsapp_phone_number": "+1234567890",
+            "whatsapp_group_id": "12036302839@g.us",
+            "whatsapp_api_key": "test_api_key_123"
+        }
+        post_resp = client.post("/alerts/config", json=payload, headers=auth_headers())
+        assert post_resp.status_code == 200
+
+        # Fetch config
+        get_resp = client.get("/alerts/config", headers=auth_headers())
+        assert get_resp.status_code == 200
+        cfg = get_resp.json()
+        assert cfg["whatsapp_phone_number"] == "+1234567890"
+        assert cfg["whatsapp_group_id"] == "12036302839@g.us"
+        assert cfg["whatsapp_user_configured"] == True
+        assert cfg["whatsapp_group_configured"] == True
+
+    def test_test_whatsapp_endpoint_mocked(self):
+        client.post("/alerts/config", json={
+            "whatsapp_phone_number": "+1234567890",
+            "whatsapp_group_id": "12036302839@g.us",
+            "whatsapp_api_key": "test_key"
+        }, headers=auth_headers())
+        with patch("services.notification_service.send_whatsapp_message", return_value=True):
+            resp = client.post("/alerts/test-whatsapp", json={"target": "both"}, headers=auth_headers())
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "dispatched successfully" in data["message"]
+
 
 # ============================================================
-# 8: NOTIFICATION SERVICE (Teams & Email Unit Tests)
+# 8: NOTIFICATION SERVICE (WhatsApp, Teams & Email Unit Tests)
 # ============================================================
 
 class TestNotificationService:
-    def test_whatsapp_alert_skipped_when_no_recipient(self):
+    def test_whatsapp_alert_skipped_when_no_recipients(self):
         from services.notification_service import send_whatsapp_alert
-        alert = models.Alert(type="site_down", severity="critical", message="Test outage")
-        with patch.dict(os.environ, {"WHATSAPP_PHONE": "", "WHATSAPP_GROUP_ID": ""}, clear=True):
-            res = send_whatsapp_alert(alert, "VPS-Test")
-            assert res == False
+        alert = models.Alert(type="site_down", severity="critical", message="Outage")
+        with patch.dict(os.environ, {}, clear=True):
+            res = send_whatsapp_alert(alert, "VPS-Test", target="all")
+            assert res["success"] == False
+            assert "No recipient configured" in res["detail"]
 
-    def test_whatsapp_alert_simulated_dispatch_to_user_and_group(self):
+    def test_whatsapp_alert_dispatches_to_user_and_group(self):
         from services.notification_service import send_whatsapp_alert
-        alert = models.Alert(type="site_down", severity="critical", message="Production Web Node Down")
-        with patch.dict(os.environ, {
-            "WHATSAPP_ENABLED": "true",
-            "WHATSAPP_TARGET": "both",
-            "WHATSAPP_PHONE": "+919876543210",
-            "WHATSAPP_GROUP_ID": "120363024567890@g.us",
-            "WHATSAPP_PROVIDER": "demo"
-        }, clear=True):
-            res = send_whatsapp_alert(alert, "Prod-Server-01")
-            assert res == True
-
-    def test_whatsapp_format_message(self):
-        from services.notification_service import format_whatsapp_message
-        alert = models.Alert(type="cpu_high", severity="warning", message="CPU usage at 94%")
-        msg = format_whatsapp_message(alert, "Web-Cluster-1")
-        assert "INFRASTRUCTURE ALERT" in msg
-        assert "CPU HIGH" in msg
-        assert "Web-Cluster-1" in msg
-        assert "CPU usage at 94%" in msg
+        alert = models.Alert(type="cpu_high", severity="warning", message="CPU at 92%")
+        env_vars = {
+            "WHATSAPP_PHONE_NUMBER": "+1234567890",
+            "WHATSAPP_GROUP_ID": "12036302@g.us",
+            "WHATSAPP_API_KEY": "dummy_key",
+            "WHATSAPP_PROVIDER": "callmebot"
+        }
+        with patch.dict(os.environ, env_vars, clear=True):
+            with patch("services.notification_service.send_whatsapp_message", return_value=True) as mock_send:
+                res = send_whatsapp_alert(alert, "VPS-Test", target="all")
+                assert res["success"] == True
+                assert res["user_sent"] == True
+                assert res["group_sent"] == True
+                assert mock_send.call_count == 2
 
     def test_teams_alert_skipped_when_no_webhook(self):
         from services.notification_service import send_teams_alert

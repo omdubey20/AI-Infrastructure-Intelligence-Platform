@@ -392,21 +392,19 @@ class AlertConfig(Base):
     __tablename__ = "alert_configs"
 
     id = Column(Integer, primary_key=True, index=True)
-    # WhatsApp settings (Individual user + Group)
     whatsapp_enabled = Column(Boolean, default=True)
-    whatsapp_target = Column(String(50), default="both")  # "user", "group", "both"
-    whatsapp_phone = Column(String(50), nullable=True)    # e.g. "+919876543210"
-    whatsapp_group_id = Column(String(100), nullable=True) # e.g. "120363024567890@g.us" or group name/id
-    whatsapp_provider = Column(String(50), default="callmebot") # "callmebot", "twilio", "cloud_api", "demo"
-    whatsapp_api_key = Column(String(255), nullable=True)
-    whatsapp_account_sid = Column(String(100), nullable=True)
+    whatsapp_target = Column(String(50), default="both")
+    whatsapp_provider = Column(String(50), default="callmebot")  # callmebot, twilio, custom_gateway
+    whatsapp_phone = Column(String(50), nullable=True)
+    whatsapp_phone_number = Column(String(50), nullable=True)     # User recipient phone number (e.g. +1234567890)
+    whatsapp_group_id = Column(String(100), nullable=True)       # WhatsApp Group ID / JID (e.g. 120363023456789@g.us)
+    whatsapp_api_key = Column(String(255), nullable=True)        # API Key / CallMeBot key / Twilio Auth Token
+    whatsapp_account_sid = Column(String(255), nullable=True)    # Twilio Account SID or Provider ID
     whatsapp_from_phone = Column(String(50), nullable=True)
+    whatsapp_sender = Column(String(50), nullable=True)          # Twilio Sender (e.g. whatsapp:+14155238886)
     whatsapp_gateway_url = Column(String(500), nullable=True)
-
-    # Legacy Webhook / Teams
+    whatsapp_api_url = Column(String(500), nullable=True)        # Custom gateway webhook URL
     teams_webhook_url = Column(String(500), nullable=True)
-
-    # Email / SMTP
     email_to = Column(String(255), nullable=True)
     smtp_host = Column(String(255), nullable=True)
     smtp_port = Column(Integer, default=587)

@@ -1,13 +1,12 @@
 """
-Notification Service — WhatsApp (User & Group) and Email Alerts
-Sends rich alert notifications to WhatsApp users and WhatsApp groups, plus SMTP email.
+Notification Service — WhatsApp (User & Group) & Email Alerts
+Sends rich alert notifications via WhatsApp (direct to user and/or team group) and SMTP email.
 Includes deduplication logic to prevent spam (15-minute cooldown per alert type per server).
 """
 import json
 import logging
 import os
 import smtplib
-import urllib.parse
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -25,28 +24,47 @@ ALERT_COOLDOWN_MINUTES = 15
 
 
 def _get_whatsapp_config(db: Optional[Session] = None) -> dict:
-    """Retrieve WhatsApp configuration from database or environment variables."""
-    cfg = None
+    """Retrieve WhatsApp notification configuration from database or environment."""
+    config = {
+        "enabled": True,
+        "provider": os.getenv("WHATSAPP_PROVIDER", "callmebot"),
+        "phone_number": os.getenv("WHATSAPP_PHONE_NUMBER", "").strip(),
+        "group_id": os.getenv("WHATSAPP_GROUP_ID", "").strip(),
+        "api_key": os.getenv("WHATSAPP_API_KEY", "").strip(),
+        "account_sid": os.getenv("WHATSAPP_ACCOUNT_SID", "").strip(),
+        "sender": os.getenv("WHATSAPP_SENDER", "").strip(),
+        "api_url": os.getenv("WHATSAPP_API_URL", "").strip(),
+    }
     if db:
         try:
             cfg = db.query(AlertConfig).first()
-        except Exception:
-            pass
-
-    return {
-        "enabled": cfg.whatsapp_enabled if (cfg and cfg.whatsapp_enabled is not None) else (os.getenv("WHATSAPP_ENABLED", "true").lower() == "true"),
-        "target": (cfg.whatsapp_target if (cfg and cfg.whatsapp_target) else os.getenv("WHATSAPP_TARGET", "both")).strip(),
-        "phone": (cfg.whatsapp_phone if (cfg and cfg.whatsapp_phone) else os.getenv("WHATSAPP_PHONE", "")).strip(),
-        "group_id": (cfg.whatsapp_group_id if (cfg and cfg.whatsapp_group_id) else os.getenv("WHATSAPP_GROUP_ID", "")).strip(),
-        "provider": (cfg.whatsapp_provider if (cfg and cfg.whatsapp_provider) else os.getenv("WHATSAPP_PROVIDER", "callmebot")).strip(),
-        "api_key": (cfg.whatsapp_api_key if (cfg and cfg.whatsapp_api_key) else os.getenv("WHATSAPP_API_KEY", "")).strip(),
-        "account_sid": (cfg.whatsapp_account_sid if (cfg and cfg.whatsapp_account_sid) else os.getenv("WHATSAPP_ACCOUNT_SID", "")).strip(),
-        "from_phone": (cfg.whatsapp_from_phone if (cfg and cfg.whatsapp_from_phone) else os.getenv("WHATSAPP_FROM_PHONE", "")).strip(),
-        "gateway_url": (cfg.whatsapp_gateway_url if (cfg and cfg.whatsapp_gateway_url) else os.getenv("WHATSAPP_GATEWAY_URL", "")).strip(),
-    }
+            if cfg:
+                if cfg.whatsapp_enabled is not None:
+                    config["enabled"] = bool(cfg.whatsapp_enabled)
+                if cfg.whatsapp_provider:
+                    config["provider"] = cfg.whatsapp_provider.strip()
+                phone = getattr(cfg, "whatsapp_phone_number", None) or getattr(cfg, "whatsapp_phone", None)
+                if phone:
+                    config["phone_number"] = phone.strip()
+                if cfg.whatsapp_group_id:
+                    config["group_id"] = cfg.whatsapp_group_id.strip()
+                if cfg.whatsapp_api_key:
+                    config["api_key"] = cfg.whatsapp_api_key.strip()
+                if cfg.whatsapp_account_sid:
+                    config["account_sid"] = cfg.whatsapp_account_sid.strip()
+                sender = getattr(cfg, "whatsapp_sender", None) or getattr(cfg, "whatsapp_from_phone", None)
+                if sender:
+                    config["sender"] = sender.strip()
+                api_url = getattr(cfg, "whatsapp_api_url", None) or getattr(cfg, "whatsapp_gateway_url", None)
+                if api_url:
+                    config["api_url"] = api_url.strip()
+        except Exception as e:
+            logger.debug(f"Error fetching WhatsApp config from DB: {e}")
+    return config
 
 
 def _get_teams_webhook_url(db: Optional[Session] = None) -> Optional[str]:
+    """Legacy Teams Webhook retrieval for backwards compatibility."""
     if db:
         try:
             cfg = db.query(AlertConfig).first()
@@ -96,218 +114,147 @@ def _severity_emoji(severity: str) -> str:
 
 
 def format_whatsapp_message(alert: Alert, server_name: str = "Unknown") -> str:
-    """Format an alert into a clean, professional WhatsApp markdown message."""
+    """Format rich, easy-to-read alert message for WhatsApp."""
     emoji = _severity_emoji(alert.severity)
-    alert_name = alert.type.replace('_', ' ').upper()
+    sev_text = alert.severity.upper() if alert.severity else "INFO"
+    alert_type = alert.type.replace("_", " ").title() if alert.type else "System Alert"
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
     return (
-        f"{emoji} *INFRASTRUCTURE ALERT* {emoji}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ *Type:* {alert_name}\n"
-        f"🔥 *Severity:* {alert.severity.upper()}\n"
-        f"🖥️ *Server:* {server_name}\n"
-        f"💬 *Details:* {alert.message}\n"
-        f"🕒 *Timestamp:* {timestamp}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛡️ _AI Infrastructure Intelligence Platform_"
+        f"🚨 *INFRASTRUCTURE ALERT* 🚨\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• *Status:* {emoji} *{sev_text}*\n"
+        f"• *Type:* {alert_type}\n"
+        f"• *Server:* {server_name}\n"
+        f"• *Message:* {alert.message}\n"
+        f"• *Time:* {timestamp}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚡ _AI Infrastructure Intelligence Platform_"
     )
 
 
-def _send_callmebot(dest: str, message: str, api_key: str, is_group: bool = False) -> bool:
+def send_whatsapp_message(to: str, message: str, is_group: bool = False, config: Optional[dict] = None) -> bool:
     """
-    Send via CallMeBot API (free WhatsApp gateway).
-    Personal: https://api.callmebot.com/whatsapp.php?phone=[phone]&text=[text]&apikey=[apikey]
-    Group:    https://api.callmebot.com/whatsapp.php?source=php&user=[group_id]&text=[text]&apikey=[apikey]
+    Deliver WhatsApp message to phone number or group ID using selected provider.
+    Supported providers: CallMeBot, Twilio, or Custom Gateway / Webhook.
     """
-    try:
-        encoded_text = urllib.parse.quote(message)
-        if is_group:
-            url = f"https://api.callmebot.com/whatsapp.php?source=php&user={urllib.parse.quote(dest)}&text={encoded_text}&apikey={api_key}"
-        else:
-            clean_phone = dest.replace("+", "").replace(" ", "").replace("-", "")
-            url = f"https://api.callmebot.com/whatsapp.php?phone={clean_phone}&text={encoded_text}&apikey={api_key}"
-
-        resp = requests.get(url, timeout=12)
-        if resp.status_code == 200 and "error" not in resp.text.lower():
-            logger.info(f"CallMeBot WhatsApp alert sent to {dest}")
-            return True
-        else:
-            logger.warning(f"CallMeBot WhatsApp returned {resp.status_code}: {resp.text[:200]}")
-            return False
-    except Exception as e:
-        logger.error(f"Failed to send CallMeBot WhatsApp message: {e}")
+    if not to or not str(to).strip():
         return False
 
+    target = str(to).strip()
+    config = config or {}
+    provider = (config.get("provider") or "callmebot").lower()
+    api_key = config.get("api_key") or ""
 
-def _send_twilio_whatsapp(to_number: str, message: str, account_sid: str, auth_token: str, from_number: str) -> bool:
-    """Send WhatsApp message via Twilio REST API."""
     try:
-        if not to_number.startswith("whatsapp:"):
-            to_number = f"whatsapp:{to_number}"
-        if not from_number.startswith("whatsapp:"):
-            from_number = f"whatsapp:{from_number}"
+        if provider == "twilio":
+            account_sid = config.get("account_sid")
+            sender = config.get("sender") or "whatsapp:+14155238886"
+            if not account_sid or not api_key:
+                logger.warning("Twilio WhatsApp requires account_sid and auth_token (api_key)")
+                return False
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+            clean_to = target if target.startswith("whatsapp:") else f"whatsapp:{target}"
+            clean_from = sender if sender.startswith("whatsapp:") else f"whatsapp:{sender}"
+            resp = requests.post(
+                url,
+                auth=(account_sid, api_key),
+                data={"From": clean_from, "To": clean_to, "Body": message},
+                timeout=10
+            )
+            return resp.status_code in (200, 201)
 
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
-        resp = requests.post(
-            url,
-            auth=(account_sid, auth_token),
-            data={
-                "From": from_number,
-                "To": to_number,
-                "Body": message
-            },
-            timeout=12
-        )
-        if resp.status_code in (200, 201):
-            logger.info(f"Twilio WhatsApp alert sent to {to_number}")
-            return True
+        elif provider == "custom_gateway" or (config.get("api_url") and provider != "callmebot"):
+            api_url = config.get("api_url")
+            if not api_url:
+                logger.warning("Custom WhatsApp gateway requires api_url")
+                return False
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+                headers["x-api-key"] = api_key
+            payload = {
+                "to": target,
+                "recipient": target,
+                "phone": target,
+                "group_id": target if is_group else None,
+                "message": message,
+                "text": message,
+                "is_group": is_group
+            }
+            resp = requests.post(api_url, json=payload, headers=headers, timeout=10)
+            return resp.status_code in (200, 201, 202)
+
         else:
-            logger.warning(f"Twilio WhatsApp returned {resp.status_code}: {resp.text[:200]}")
-            return False
+            # Default CallMeBot API (Personal phone or Group)
+            base_url = "https://api.callmebot.com/whatsapp.php"
+            params = {
+                "text": message,
+                "apikey": api_key
+            }
+            if is_group:
+                params["group"] = target
+            else:
+                clean_phone = target.replace("+", "").replace(" ", "").replace("-", "")
+                params["phone"] = clean_phone
+
+            resp = requests.get(base_url, params=params, timeout=10)
+            return resp.status_code == 200
+
     except Exception as e:
-        logger.error(f"Failed to send Twilio WhatsApp message: {e}")
-        return False
-
-
-def _send_cloud_api_whatsapp(to_dest: str, message: str, token: str, phone_number_id: str) -> bool:
-    """Send WhatsApp message via Meta WhatsApp Cloud API."""
-    try:
-        clean_phone = to_dest.replace("+", "").replace(" ", "").replace("-", "")
-        url = f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": clean_phone,
-            "type": "text",
-            "text": {"preview_url": False, "body": message}
-        }
-        resp = requests.post(url, json=payload, headers=headers, timeout=12)
-        if resp.status_code in (200, 201):
-            logger.info(f"WhatsApp Cloud API alert sent to {to_dest}")
-            return True
-        else:
-            logger.warning(f"WhatsApp Cloud API returned {resp.status_code}: {resp.text[:200]}")
-            return False
-    except Exception as e:
-        logger.error(f"Failed to send WhatsApp Cloud API message: {e}")
-        return False
-
-
-def _send_custom_gateway_whatsapp(gateway_url: str, to_dest: str, message: str, api_key: Optional[str] = None) -> bool:
-    """Send WhatsApp message via generic webhook / gateway (Evolution API / UltraMsg / Baileys)."""
-    try:
-        headers = {"Content-Type": "application/json"}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-            headers["x-api-key"] = api_key
-
-        payload = {
-            "to": to_dest,
-            "recipient": to_dest,
-            "message": message,
-            "text": message
-        }
-        resp = requests.post(gateway_url, json=payload, headers=headers, timeout=12)
-        if resp.status_code in (200, 201, 202):
-            logger.info(f"Custom WhatsApp gateway sent alert to {to_dest}")
-            return True
-        else:
-            logger.warning(f"Custom WhatsApp gateway returned {resp.status_code}: {resp.text[:200]}")
-            return False
-    except Exception as e:
-        logger.error(f"Failed to send Custom WhatsApp gateway message: {e}")
+        logger.error(f"Failed to send WhatsApp message to {target} (is_group={is_group}): {e}")
         return False
 
 
 def send_whatsapp_alert(
     alert: Alert,
     server_name: str = "Unknown",
-    target_override: Optional[str] = None,
+    target: str = "all",
     db: Optional[Session] = None
-) -> bool:
+) -> dict:
     """
-    Send WhatsApp alert to configured User Phone and/or WhatsApp Group.
-    Supports CallMeBot, Twilio, Meta Cloud API, Custom Gateway, and Simulation/Demo mode.
+    Send an alert to configured WhatsApp User, WhatsApp Group, or both.
+    Returns status dict indicating delivery results.
     """
-    cfg = _get_whatsapp_config(db)
-    if not cfg["enabled"]:
-        logger.debug("WhatsApp notifications disabled in config")
-        return False
+    config = _get_whatsapp_config(db)
+    if not config.get("enabled", True):
+        logger.debug("WhatsApp alerts disabled, skipping notification")
+        return {"user_sent": False, "group_sent": False, "success": False, "detail": "WhatsApp alerts disabled"}
 
-    target = (target_override or cfg["target"] or "both").lower().strip()
-    phone = cfg["phone"]
-    group_id = cfg["group_id"]
-    provider = cfg["provider"].lower().strip()
-    api_key = cfg["api_key"]
-    account_sid = cfg["account_sid"]
-    from_phone = cfg["from_phone"]
-    gateway_url = cfg["gateway_url"]
+    phone = config.get("phone_number")
+    group = config.get("group_id")
 
-    # If neither user phone nor group is configured and no gateway, nothing to send to
-    if not phone and not group_id and not gateway_url:
-        logger.debug("WhatsApp recipient (phone or group) not configured, skipping")
-        return False
+    if not phone and not group:
+        logger.debug("Neither WhatsApp phone number nor group ID configured, skipping")
+        return {"user_sent": False, "group_sent": False, "success": False, "detail": "No recipient configured"}
 
-    message = format_whatsapp_message(alert, server_name)
-    success = False
+    msg = format_whatsapp_message(alert, server_name)
+    user_ok = False
+    group_ok = False
 
-    # Determine destinations based on target mode
-    destinations = []
-    if target in ("user", "both") and phone:
-        destinations.append({"type": "user", "dest": phone})
-    if target in ("group", "both") and group_id:
-        destinations.append({"type": "group", "dest": group_id})
+    if target in ("user", "all", "both") and phone:
+        user_ok = send_whatsapp_message(phone, msg, is_group=False, config=config)
+        if user_ok:
+            logger.info(f"WhatsApp alert sent to user {phone} for {server_name}")
 
-    # If no valid destinations matched target mode, fallback to any available
-    if not destinations:
-        if phone:
-            destinations.append({"type": "user", "dest": phone})
-        elif group_id:
-            destinations.append({"type": "group", "dest": group_id})
+    if target in ("group", "all", "both") and group:
+        group_ok = send_whatsapp_message(group, msg, is_group=True, config=config)
+        if group_ok:
+            logger.info(f"WhatsApp alert sent to group {group} for {server_name}")
 
-    for dest_info in destinations:
-        dest = dest_info["dest"]
-        is_group = (dest_info["type"] == "group")
-
-        # Demo / Simulation Mode: If explicitly chosen or no API credentials are provided
-        if provider == "demo" or (not api_key and not account_sid and not gateway_url):
-            logger.info(
-                f"[WHATSAPP SIMULATED SUCCESS] Delivered alert to {dest_info['type'].upper()} ({dest}):\n{message}"
-            )
-            success = True
-            continue
-
-        if provider == "callmebot" and api_key:
-            if _send_callmebot(dest, message, api_key, is_group=is_group):
-                success = True
-        elif provider == "twilio" and account_sid and api_key and from_phone:
-            if _send_twilio_whatsapp(dest, message, account_sid, api_key, from_phone):
-                success = True
-        elif provider == "cloud_api" and api_key and account_sid:
-            # For cloud_api, account_sid field stores the phone_number_id
-            if _send_cloud_api_whatsapp(dest, message, api_key, account_sid):
-                success = True
-        elif gateway_url:
-            if _send_custom_gateway_whatsapp(gateway_url, dest, message, api_key):
-                success = True
-        else:
-            # Fallback to simulation log so user test always succeeds
-            logger.info(f"[WHATSAPP FALLBACK DISPATCH] Alert sent to {dest}: {alert.type}")
-            success = True
-
-    return success
+    success = user_ok or group_ok
+    return {
+        "user_sent": user_ok,
+        "group_sent": group_ok,
+        "success": success,
+        "detail": f"User: {'✓' if user_ok else ('Skipped' if not phone else 'Failed')}, Group: {'✓' if group_ok else ('Skipped' if not group else 'Failed')}"
+    }
 
 
-def send_teams_alert(alert: Alert, server_name: str = "Unknown", db: Optional[Session] = None):
-    """Send a rich Adaptive Card message to Microsoft Teams / Slack via Incoming Webhook (Legacy)."""
+def send_teams_alert(alert: Alert, server_name: str = "Unknown", db: Optional[Session] = None) -> bool:
+    """Send a card message to legacy Microsoft Teams / Slack incoming webhook if still configured."""
     webhook_url = _get_teams_webhook_url(db)
     if not webhook_url:
-        logger.debug("TEAMS_WEBHOOK_URL not configured, skipping Teams notification")
         return False
 
     emoji = _severity_emoji(alert.severity)
@@ -333,18 +280,13 @@ def send_teams_alert(alert: Alert, server_name: str = "Unknown", db: Optional[Se
 
     try:
         resp = requests.post(webhook_url, json=card, timeout=10)
-        if resp.status_code in (200, 202):
-            logger.info(f"Teams alert sent: {alert.type} for {server_name}")
-            return True
-        else:
-            logger.warning(f"Teams webhook returned {resp.status_code}: {resp.text[:200]}")
-            return False
+        return resp.status_code in (200, 202)
     except Exception as e:
         logger.error(f"Failed to send Teams alert: {e}")
         return False
 
 
-def send_email_alert(alert: Alert, server_name: str = "Unknown", db: Optional[Session] = None):
+def send_email_alert(alert: Alert, server_name: str = "Unknown", db: Optional[Session] = None) -> bool:
     """Send an HTML-formatted alert email via SMTP."""
     config = _get_smtp_config(db)
     if not all([config["host"], config["user"], config["password"], config["to"]]):
@@ -408,7 +350,7 @@ def send_email_alert(alert: Alert, server_name: str = "Unknown", db: Optional[Se
 
 def dispatch_alert(db: Session, alert: Alert, server_name: str = "Unknown"):
     """
-    Send alert via configured channels (WhatsApp User/Group + Email + optional legacy Teams).
+    Send alert via all configured channels (WhatsApp User & Group + Email + legacy Teams).
     Includes cooldown deduplication — won't resend same alert type for same server within ALERT_COOLDOWN_MINUTES.
     """
     # Check cooldown — did we recently send the same type of alert for this server?
@@ -424,13 +366,13 @@ def dispatch_alert(db: Session, alert: Alert, server_name: str = "Unknown"):
         logger.debug(f"Alert cooldown active for {alert.type} on server {alert.server_id}, skipping notification")
         return
 
-    whatsapp_ok = send_whatsapp_alert(alert, server_name, db=db)
+    whatsapp_res = send_whatsapp_alert(alert, server_name, target="all", db=db)
     teams_ok = send_teams_alert(alert, server_name, db=db)
     email_ok = send_email_alert(alert, server_name, db=db)
 
     now = datetime.utcnow()
     alert.notification_sent = True
-    if whatsapp_ok:
+    if whatsapp_res.get("success"):
         alert.whatsapp_sent_at = now
     if teams_ok:
         alert.teams_sent_at = now
@@ -438,7 +380,7 @@ def dispatch_alert(db: Session, alert: Alert, server_name: str = "Unknown"):
         alert.email_sent_at = now
 
     try:
-        db.flush()
+        db.commit()
     except Exception as e:
         logger.warning(f"Failed to update alert notification status: {e}")
         db.rollback()

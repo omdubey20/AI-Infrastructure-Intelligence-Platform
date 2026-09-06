@@ -29,14 +29,13 @@ export default function Alerts() {
   const [tab, setTab] = useState("alerts"); // alerts | malware | settings
   const [configForm, setConfigForm] = useState({
     whatsapp_enabled: true,
-    whatsapp_target: "both",
-    whatsapp_phone: "",
+    whatsapp_provider: "callmebot", // callmebot | twilio | custom_gateway
+    whatsapp_phone_number: "",
     whatsapp_group_id: "",
-    whatsapp_provider: "callmebot",
     whatsapp_api_key: "",
     whatsapp_account_sid: "",
-    whatsapp_from_phone: "",
-    whatsapp_gateway_url: "",
+    whatsapp_sender: "",
+    whatsapp_api_url: "",
     teams_webhook_url: "",
     email_to: "",
     smtp_host: "",
@@ -46,8 +45,9 @@ export default function Alerts() {
   });
   const [configStatus, setConfigStatus] = useState({
     whatsapp_configured: false,
-    email_configured: false,
-    teams_configured: false
+    whatsapp_user_configured: false,
+    whatsapp_group_configured: false,
+    email_configured: false
   });
   const [savingConfig, setSavingConfig] = useState(false);
   const [testingWaUser, setTestingWaUser] = useState(false);
@@ -86,14 +86,13 @@ export default function Alerts() {
       const res = await api.get("/alerts/config");
       setConfigForm({
         whatsapp_enabled: res.data.whatsapp_enabled ?? true,
-        whatsapp_target: res.data.whatsapp_target || "both",
-        whatsapp_phone: res.data.whatsapp_phone || "",
-        whatsapp_group_id: res.data.whatsapp_group_id || "",
         whatsapp_provider: res.data.whatsapp_provider || "callmebot",
+        whatsapp_phone_number: res.data.whatsapp_phone_number || "",
+        whatsapp_group_id: res.data.whatsapp_group_id || "",
         whatsapp_api_key: res.data.whatsapp_api_key || "",
         whatsapp_account_sid: res.data.whatsapp_account_sid || "",
-        whatsapp_from_phone: res.data.whatsapp_from_phone || "",
-        whatsapp_gateway_url: res.data.whatsapp_gateway_url || "",
+        whatsapp_sender: res.data.whatsapp_sender || "",
+        whatsapp_api_url: res.data.whatsapp_api_url || "",
         teams_webhook_url: res.data.teams_webhook_url || "",
         email_to: res.data.email_to || "",
         smtp_host: res.data.smtp_host || "",
@@ -103,8 +102,9 @@ export default function Alerts() {
       });
       setConfigStatus({
         whatsapp_configured: res.data.whatsapp_configured,
-        email_configured: res.data.email_configured,
-        teams_configured: res.data.teams_configured
+        whatsapp_user_configured: res.data.whatsapp_user_configured,
+        whatsapp_group_configured: res.data.whatsapp_group_configured,
+        email_configured: res.data.email_configured
       });
     } catch (e) {
       console.error("fetchConfig error:", e);
@@ -117,7 +117,7 @@ export default function Alerts() {
     setActionMsg(null);
     try {
       await api.post("/alerts/config", configForm);
-      setActionMsg({ ok: true, msg: "Notification settings saved successfully!" });
+      setActionMsg({ ok: true, msg: "Alert & Notification settings saved successfully!" });
       fetchConfig();
     } catch (err) {
       setActionMsg({ ok: false, msg: `Save failed: ${err.response?.data?.detail || err.message}` });
@@ -126,28 +126,17 @@ export default function Alerts() {
     }
   };
 
-  const handleTestWaUser = async () => {
-    setTestingWaUser(true);
+  const handleTestWhatsApp = async (target = "both") => {
+    if (target === "user") setTestingWaUser(true);
+    else if (target === "group") setTestingWaGroup(true);
     setActionMsg(null);
     try {
-      const res = await api.post("/alerts/test-whatsapp-user");
+      const res = await api.post("/alerts/test-whatsapp", { target });
       setActionMsg({ ok: true, msg: res.data.message });
     } catch (err) {
-      setActionMsg({ ok: false, msg: err.response?.data?.detail || "WhatsApp user test failed." });
+      setActionMsg({ ok: false, msg: err.response?.data?.detail || "WhatsApp test failed." });
     } finally {
       setTestingWaUser(false);
-    }
-  };
-
-  const handleTestWaGroup = async () => {
-    setTestingWaGroup(true);
-    setActionMsg(null);
-    try {
-      const res = await api.post("/alerts/test-whatsapp-group");
-      setActionMsg({ ok: true, msg: res.data.message });
-    } catch (err) {
-      setActionMsg({ ok: false, msg: err.response?.data?.detail || "WhatsApp group test failed." });
-    } finally {
       setTestingWaGroup(false);
     }
   };
@@ -169,7 +158,7 @@ export default function Alerts() {
     fetchAlerts();
     fetchMalware();
     fetchConfig();
-    const interval = setInterval(() => { fetchAlerts(); fetchMalware(); }, 300000);
+    const interval = setInterval(() => { fetchAlerts(); fetchMalware(); }, 10000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, typeFilter]);
@@ -203,7 +192,7 @@ export default function Alerts() {
         </p>
         <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>Alerts & Security</h1>
         <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-          {totalOpen} open alert(s) · Notifications via Microsoft Teams & Email
+          {totalOpen} open alert(s) · Instant Notifications via WhatsApp (User & Group) and Email
         </p>
       </div>
 
@@ -220,10 +209,10 @@ export default function Alerts() {
           <button key={t} onClick={() => setTab(t)} style={{
             padding: "8px 22px", borderRadius: "20px", border: "none", fontWeight: 700, fontSize: "12px",
             cursor: "pointer", textTransform: "capitalize",
-            background: tab === t ? "#38bdf8" : "#111c2e",
+            background: tab === t ? "#22c55e" : "#111c2e",
             color: tab === t ? "#080e1a" : "#94a3b8",
           }}>
-            {t === "alerts" ? `🔔 System Alerts (${totalOpen})` : t === "malware" ? `🦠 Malware (${malware.length})` : "⚙️ Webhook & Email Settings"}
+            {t === "alerts" ? `🔔 System Alerts (${totalOpen})` : t === "malware" ? `🦠 Malware (${malware.length})` : "⚙️ WhatsApp & Email Settings"}
           </button>
         ))}
       </div>
@@ -237,8 +226,8 @@ export default function Alerts() {
               <button key={f} onClick={() => setFilter(f)} style={{
                 padding: "6px 16px", borderRadius: "16px", border: "none", fontWeight: 700, fontSize: "11px",
                 cursor: "pointer", textTransform: "capitalize",
-                background: filter === f ? "#6366f1" : "#111c2e",
-                color: filter === f ? "#fff" : "#94a3b8",
+                background: filter === f ? "#22c55e" : "#111c2e",
+                color: filter === f ? "#080e1a" : "#94a3b8",
               }}>{f}</button>
             ))}
             <span style={{ color: "#334155", margin: "0 4px" }}>|</span>
@@ -289,15 +278,9 @@ export default function Alerts() {
                           {a.site_domain && <span>Site: <b>{a.site_domain}</b></span>}
                           <span>{new Date(a.created_at).toLocaleString()}</span>
                           {(a.whatsapp_sent_at || a.teams_sent_at) && (
-                            <span style={{ color: "#22c55e", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                              💬 WhatsApp ✓
-                            </span>
+                            <span style={{ color: "#22c55e", fontWeight: 700 }}>WhatsApp ✓</span>
                           )}
-                          {a.email_sent_at && (
-                            <span style={{ color: "#2dd4bf", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                              ✉️ Email ✓
-                            </span>
-                          )}
+                          {a.email_sent_at && <span style={{ color: "#2dd4bf" }}>Email ✓</span>}
                         </div>
                       </div>
                       {!a.is_resolved && (
@@ -380,124 +363,100 @@ export default function Alerts() {
 
       {/* SETTINGS TAB */}
       {tab === "settings" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "24px" }}>
           {/* WhatsApp Card */}
-          <div className="card" style={{ border: "1px solid rgba(34,197,94,0.3)", background: "linear-gradient(180deg, rgba(34,197,94,0.04) 0%, rgba(15,23,42,0.6) 100%)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-              <h3 style={{ fontSize: "16px", fontWeight: 800, color: "#f1f5f9", display: "flex", alignItems: "center", gap: "8px" }}>
-                <span>💬</span> WhatsApp Alerts (User & Group)
-              </h3>
-              <span className={configStatus.whatsapp_configured ? "badge badge-green" : "badge badge-amber"}>
-                {configStatus.whatsapp_configured ? "🟢 Active" : "🟡 Not Configured"}
-              </span>
+          <div className="card" style={{ border: "1px solid rgba(34,197,94,0.3)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "20px" }}>🟢</span>
+                <h3 style={{ fontSize: "16px", fontWeight: 800, color: "#f1f5f9", margin: 0 }}>
+                  WhatsApp Alerts (User & Group)
+                </h3>
+              </div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <span className={configStatus.whatsapp_user_configured ? "badge badge-green" : "badge badge-amber"}>
+                  {configStatus.whatsapp_user_configured ? "👤 User Active" : "👤 No User"}
+                </span>
+                <span className={configStatus.whatsapp_group_configured ? "badge badge-green" : "badge badge-amber"}>
+                  {configStatus.whatsapp_group_configured ? "👥 Group Active" : "👥 No Group"}
+                </span>
+              </div>
             </div>
-            <p style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "16px", lineHeight: "1.5" }}>
-              Deliver instantaneous infrastructure alerts with formatted markdown and diagnostic details directly to an on-call engineer's phone and WhatsApp operations groups.
+
+            <p style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "18px", lineHeight: "1.5" }}>
+              Receive instant alerts on your personal WhatsApp and team WhatsApp groups whenever site downtime, high resource spikes, or security threats occur.
             </p>
 
             <form onSubmit={handleSaveConfig}>
-              {/* Notification Target Mode */}
-              <div style={{ marginBottom: "14px" }}>
-                <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "6px" }}>
-                  DISPATCH TARGET
-                </label>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  {[
-                    { id: "both", label: "👥 Both User & Group" },
-                    { id: "user", label: "📱 User Only" },
-                    { id: "group", label: "📢 Group Only" },
-                  ].map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setConfigForm({ ...configForm, whatsapp_target: t.id })}
-                      style={{
-                        flex: 1,
-                        padding: "7px 8px",
-                        borderRadius: "8px",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        border: configForm.whatsapp_target === t.id ? "1px solid #22c55e" : "1px solid #1e293b",
-                        background: configForm.whatsapp_target === t.id ? "rgba(34,197,94,0.15)" : "#0b1329",
-                        color: configForm.whatsapp_target === t.id ? "#4ade80" : "#94a3b8",
-                      }}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Phone & Group Grid */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "14px" }}>
-                <div>
-                  <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
-                    USER PHONE NUMBER
-                  </label>
-                  <input
-                    type="text"
-                    className="input-base"
-                    placeholder="+919876543210"
-                    value={configForm.whatsapp_phone}
-                    onChange={(e) => setConfigForm({ ...configForm, whatsapp_phone: e.target.value })}
-                  />
-                  <span style={{ fontSize: "10px", color: "#64748b" }}>With country code (+91, +1, etc.)</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
-                    GROUP ID / CHAT REF
-                  </label>
-                  <input
-                    type="text"
-                    className="input-base"
-                    placeholder="120363024567890@g.us or Ops-Team"
-                    value={configForm.whatsapp_group_id}
-                    onChange={(e) => setConfigForm({ ...configForm, whatsapp_group_id: e.target.value })}
-                  />
-                  <span style={{ fontSize: "10px", color: "#64748b" }}>WhatsApp group JID or link identifier</span>
-                </div>
-              </div>
-
-              {/* API Provider Selector */}
+              {/* Provider Selector */}
               <div style={{ marginBottom: "14px" }}>
                 <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
-                  WHATSAPP API PROVIDER
+                  WHATSAPP DISPATCH PROVIDER
                 </label>
                 <select
+                  className="input-base"
                   value={configForm.whatsapp_provider}
                   onChange={(e) => setConfigForm({ ...configForm, whatsapp_provider: e.target.value })}
-                  className="input-base"
-                  style={{ cursor: "pointer", background: "#0b1329" }}
+                  style={{ width: "100%", background: "#0a1322", color: "#f1f5f9", cursor: "pointer" }}
                 >
-                  <option value="callmebot">CallMeBot (Free, Instant Setup — Zero Verification)</option>
-                  <option value="demo">Interactive Demo / Simulator Mode (Test Live Without Keys)</option>
-                  <option value="twilio">Twilio WhatsApp Business</option>
-                  <option value="cloud_api">Meta WhatsApp Cloud API / Custom Gateway</option>
+                  <option value="callmebot">CallMeBot (Simple & Fast — Personal & Groups)</option>
+                  <option value="twilio">Twilio for WhatsApp (Production Cloud API)</option>
+                  <option value="custom_gateway">Custom WhatsApp Gateway / Webhook (UltraMsg / Baileys / Green-API)</option>
                 </select>
               </div>
 
-              {/* Provider-specific fields */}
+              {/* Targets: User and Group */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "14px" }}>
+                <div>
+                  <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                    👤 WHATSAPP USER PHONE NUMBER
+                  </label>
+                  <input
+                    type="text"
+                    className="input-base"
+                    placeholder="+1234567890 or +919876543210"
+                    value={configForm.whatsapp_phone_number}
+                    onChange={(e) => setConfigForm({ ...configForm, whatsapp_phone_number: e.target.value })}
+                  />
+                  <span style={{ fontSize: "10px", color: "#64748b" }}>Include country code (+1, +91, etc.)</span>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                    👥 WHATSAPP GROUP ID / JID
+                  </label>
+                  <input
+                    type="text"
+                    className="input-base"
+                    placeholder="120363023456789@g.us or Group Code"
+                    value={configForm.whatsapp_group_id}
+                    onChange={(e) => setConfigForm({ ...configForm, whatsapp_group_id: e.target.value })}
+                  />
+                  <span style={{ fontSize: "10px", color: "#64748b" }}>Target team or devops alert group</span>
+                </div>
+              </div>
+
+              {/* Provider-specific credentials */}
               {configForm.whatsapp_provider === "callmebot" && (
-                <div style={{ marginBottom: "14px" }}>
+                <div style={{ marginBottom: "16px" }}>
                   <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
                     CALLMEBOT API KEY
                   </label>
                   <input
                     type="password"
                     className="input-base"
-                    placeholder="Enter CallMeBot API key"
+                    placeholder="e.g. 1234567"
                     value={configForm.whatsapp_api_key}
                     onChange={(e) => setConfigForm({ ...configForm, whatsapp_api_key: e.target.value })}
                   />
-                  <span style={{ fontSize: "10px", color: "#64748b" }}>
-                    Free key: Text <i>"I allow callmebot to send me messages"</i> to <b>+34 644 44 49 64</b> on WhatsApp.
-                  </span>
+                  <p style={{ fontSize: "10px", color: "#64748b", marginTop: "4px" }}>
+                    Tip: Send "I allow callmebot to send me messages" to +34 644 44 47 41 on WhatsApp to get your free API key.
+                  </p>
                 </div>
               )}
 
               {configForm.whatsapp_provider === "twilio" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "14px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
                   <div>
                     <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
                       TWILIO ACCOUNT SID
@@ -505,7 +464,7 @@ export default function Alerts() {
                     <input
                       type="text"
                       className="input-base"
-                      placeholder="ACxxxxxxxx..."
+                      placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxx"
                       value={configForm.whatsapp_account_sid}
                       onChange={(e) => setConfigForm({ ...configForm, whatsapp_account_sid: e.target.value })}
                     />
@@ -517,116 +476,92 @@ export default function Alerts() {
                     <input
                       type="password"
                       className="input-base"
-                      placeholder="••••••••"
+                      placeholder="••••••••••••••••"
                       value={configForm.whatsapp_api_key}
                       onChange={(e) => setConfigForm({ ...configForm, whatsapp_api_key: e.target.value })}
                     />
                   </div>
                   <div style={{ gridColumn: "span 2" }}>
                     <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
-                      TWILIO FROM NUMBER
+                      TWILIO SENDER (FROM)
                     </label>
                     <input
                       type="text"
                       className="input-base"
                       placeholder="whatsapp:+14155238886"
-                      value={configForm.whatsapp_from_phone}
-                      onChange={(e) => setConfigForm({ ...configForm, whatsapp_from_phone: e.target.value })}
+                      value={configForm.whatsapp_sender}
+                      onChange={(e) => setConfigForm({ ...configForm, whatsapp_sender: e.target.value })}
                     />
                   </div>
                 </div>
               )}
 
-              {configForm.whatsapp_provider === "cloud_api" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "14px" }}>
-                  <div>
+              {configForm.whatsapp_provider === "custom_gateway" && (
+                <div style={{ marginBottom: "16px" }}>
+                  <div style={{ marginBottom: "10px" }}>
                     <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
-                      PHONE NUMBER ID
+                      GATEWAY WEBHOOK / API URL
                     </label>
                     <input
                       type="text"
                       className="input-base"
-                      placeholder="Meta Phone Number ID"
-                      value={configForm.whatsapp_account_sid}
-                      onChange={(e) => setConfigForm({ ...configForm, whatsapp_account_sid: e.target.value })}
+                      placeholder="https://your-whatsapp-api.com/send"
+                      value={configForm.whatsapp_api_url}
+                      onChange={(e) => setConfigForm({ ...configForm, whatsapp_api_url: e.target.value })}
                     />
                   </div>
                   <div>
                     <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
-                      ACCESS TOKEN
+                      BEARER TOKEN / API KEY (OPTIONAL)
                     </label>
                     <input
                       type="password"
                       className="input-base"
-                      placeholder="Bearer token"
+                      placeholder="Bearer token or API secret"
                       value={configForm.whatsapp_api_key}
                       onChange={(e) => setConfigForm({ ...configForm, whatsapp_api_key: e.target.value })}
                     />
                   </div>
-                  <div style={{ gridColumn: "span 2" }}>
-                    <label style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "4px" }}>
-                      CUSTOM GATEWAY URL (OPTIONAL)
-                    </label>
-                    <input
-                      type="text"
-                      className="input-base"
-                      placeholder="https://api.ultramsg.com/... or self-hosted endpoint"
-                      value={configForm.whatsapp_gateway_url}
-                      onChange={(e) => setConfigForm({ ...configForm, whatsapp_gateway_url: e.target.value })}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {configForm.whatsapp_provider === "demo" && (
-                <div style={{ padding: "10px 12px", background: "rgba(34,197,94,0.1)", borderRadius: "8px", border: "1px dashed rgba(34,197,94,0.3)", marginBottom: "14px" }}>
-                  <p style={{ margin: 0, fontSize: "11px", color: "#86efac", lineHeight: "1.4" }}>
-                    ✨ <b>Demo / Viva Mode:</b> Formats markdown messages and delivers to the internal dispatcher with timestamp tracking. Ideal for testing and live presentations without requiring external SMS API credits.
-                  </p>
                 </div>
               )}
 
               {/* Action Buttons */}
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                 <button
                   type="submit"
                   disabled={savingConfig}
-                  className="btn-primary"
-                  style={{ fontSize: "12px", padding: "8px 14px", background: "#16a34a", borderColor: "#22c55e" }}
+                  style={{
+                    fontSize: "12px", padding: "8px 18px", borderRadius: "8px",
+                    background: "#22c55e", color: "#080e1a", fontWeight: 800, border: "none", cursor: "pointer"
+                  }}
                 >
-                  {savingConfig ? "Saving..." : "💾 Save WhatsApp"}
+                  {savingConfig ? "Saving..." : "💾 Save WhatsApp Settings"}
                 </button>
+
                 <button
                   type="button"
-                  onClick={handleTestWaUser}
-                  disabled={testingWaUser || !configForm.whatsapp_phone}
-                  className="btn-secondary"
+                  onClick={() => handleTestWhatsApp("user")}
+                  disabled={testingWaUser || !configForm.whatsapp_phone_number}
                   style={{
-                    fontSize: "12px",
-                    padding: "8px 12px",
-                    background: "rgba(34,197,94,0.15)",
-                    color: "#4ade80",
-                    border: "1px solid rgba(34,197,94,0.4)",
-                    cursor: configForm.whatsapp_phone ? "pointer" : "not-allowed",
+                    fontSize: "12px", padding: "8px 14px", borderRadius: "8px",
+                    background: "rgba(34,197,94,0.15)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.4)",
+                    fontWeight: 700, cursor: configForm.whatsapp_phone_number ? "pointer" : "not-allowed",
+                    opacity: configForm.whatsapp_phone_number ? 1 : 0.5
                   }}
-                  title={!configForm.whatsapp_phone ? "Please enter a user phone number" : "Send test alert to user"}
                 >
                   {testingWaUser ? "Sending..." : "📱 Test User"}
                 </button>
+
                 <button
                   type="button"
-                  onClick={handleTestWaGroup}
+                  onClick={() => handleTestWhatsApp("group")}
                   disabled={testingWaGroup || !configForm.whatsapp_group_id}
-                  className="btn-secondary"
                   style={{
-                    fontSize: "12px",
-                    padding: "8px 12px",
-                    background: "rgba(56,189,248,0.15)",
-                    color: "#38bdf8",
-                    border: "1px solid rgba(56,189,248,0.4)",
-                    cursor: configForm.whatsapp_group_id ? "pointer" : "not-allowed",
+                    fontSize: "12px", padding: "8px 14px", borderRadius: "8px",
+                    background: "rgba(56,189,248,0.15)", color: "#38bdf8", border: "1px solid rgba(56,189,248,0.4)",
+                    fontWeight: 700, cursor: configForm.whatsapp_group_id ? "pointer" : "not-allowed",
+                    opacity: configForm.whatsapp_group_id ? 1 : 0.5
                   }}
-                  title={!configForm.whatsapp_group_id ? "Please enter a group ID" : "Send test alert to group"}
                 >
                   {testingWaGroup ? "Sending..." : "👥 Test Group"}
                 </button>
@@ -637,9 +572,12 @@ export default function Alerts() {
           {/* Email / SMTP Card */}
           <div className="card" style={{ border: "1px solid rgba(56,189,248,0.2)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <h3 style={{ fontSize: "16px", fontWeight: 800, color: "#f1f5f9" }}>
-                📧 Email Alert Notifications (SMTP)
-              </h3>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "18px" }}>📧</span>
+                <h3 style={{ fontSize: "16px", fontWeight: 800, color: "#f1f5f9", margin: 0 }}>
+                  Email Notifications (SMTP)
+                </h3>
+              </div>
               <span className={configStatus.email_configured ? "badge badge-green" : "badge badge-amber"}>
                 {configStatus.email_configured ? "🟢 Active" : "🟡 Incomplete"}
               </span>
@@ -717,8 +655,15 @@ export default function Alerts() {
               </div>
 
               <div style={{ display: "flex", gap: "10px" }}>
-                <button type="submit" disabled={savingConfig} className="btn-primary" style={{ fontSize: "12px", padding: "8px 16px" }}>
-                  {savingConfig ? "Saving..." : "💾 Save Email Settings"}
+                <button
+                  type="submit"
+                  disabled={savingConfig}
+                  style={{
+                    fontSize: "12px", padding: "8px 16px", borderRadius: "8px",
+                    background: "#38bdf8", color: "#080e1a", fontWeight: 700, border: "none", cursor: "pointer"
+                  }}
+                >
+                  {savingConfig ? "Saving..." : "💾 Save Email"}
                 </button>
                 <button
                   type="button"
