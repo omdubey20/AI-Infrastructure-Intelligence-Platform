@@ -204,7 +204,7 @@ def check_dns_live(domain: str) -> bool:
     if not domain or "." not in domain or domain.endswith(".local") or domain.endswith(".internal"):
         return False
     try:
-        socket.setdefaulttimeout(1)
+        socket.setdefaulttimeout(5)
         socket.gethostbyname(domain)
         return True
     except Exception:
@@ -219,7 +219,7 @@ def check_ssl(domain: str) -> Tuple[bool, Optional[int]]:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        with socket.create_connection((domain, 443), timeout=1) as sock:
+        with socket.create_connection((domain, 443), timeout=10) as sock:
             with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
                 cert = ssock.getpeercert(binary_form=True)
                 if cert:

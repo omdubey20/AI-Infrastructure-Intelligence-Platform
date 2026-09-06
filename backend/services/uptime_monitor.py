@@ -20,8 +20,8 @@ from services.notification_service import create_and_dispatch_alert
 
 logger = logging.getLogger(__name__)
 
-# Timeout for HTTP checks (10s ensures ultra-responsive scans without hanging on unreachable hosts)
-HTTP_TIMEOUT = 10
+# Timeout for HTTP checks (30s ensures slow-loading websites have enough time to respond)
+HTTP_TIMEOUT = 30
 # How many consecutive failures before alerting
 FAILURE_THRESHOLD = 2
 
@@ -93,7 +93,7 @@ def check_single_site(url: str) -> dict:
             hostname = clean_url.split("/")[0].split(":")[0]
             ctx = ssl.create_default_context()
             raw_sock = socket.socket()
-            raw_sock.settimeout(3)
+            raw_sock.settimeout(10)
             with ctx.wrap_socket(raw_sock, server_hostname=hostname) as s:
                 s.connect((hostname, 443))
                 cert = s.getpeercert()
