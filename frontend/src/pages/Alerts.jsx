@@ -276,7 +276,12 @@ export default function Alerts() {
                         <div style={{ marginTop: "6px", fontSize: "11px", color: "#64748b", display: "flex", gap: "16px", flexWrap: "wrap" }}>
                           {a.server_name && <span>Server: <b>{a.server_name}</b></span>}
                           {a.site_domain && <span>Site: <b>{a.site_domain}</b></span>}
-                          <span>{new Date(a.created_at).toLocaleString()}</span>
+                          <span>Triggered: {new Date(a.created_at).toLocaleDateString()} {new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          {a.server_last_scanned_at && (
+                            <span style={{ color: "#38bdf8" }}>
+                              Fleet Scan: {new Date(a.server_last_scanned_at).toLocaleDateString()} {new Date(a.server_last_scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({a.server_data_source ? a.server_data_source.toUpperCase() : "Active"})
+                            </span>
+                          )}
                           {(a.whatsapp_sent_at || a.teams_sent_at) && (
                             <span style={{ color: "#22c55e", fontWeight: 700 }}>WhatsApp ✓</span>
                           )}

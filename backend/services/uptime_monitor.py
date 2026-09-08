@@ -243,6 +243,15 @@ def run_uptime_checks(db: Session):
                     site_id=disc_id,
                     server_name=server_name,
                 )
+        elif result["ssl_expiry_days"] is not None and result["ssl_expiry_days"] > 14:
+            open_ssl = db.query(Alert).filter(
+                Alert.site_id == disc_id,
+                Alert.type == "ssl_expiring",
+                Alert.is_resolved == False,
+            ).all()
+            for a in open_ssl:
+                a.is_resolved = True
+                a.resolved_at = datetime.utcnow()
 
     try:
         db.commit()

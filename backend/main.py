@@ -165,6 +165,7 @@ def agent_heartbeat_check():
         cutoff = datetime.utcnow() - timedelta(minutes=8)
         stale_servers = db.query(Server).filter(
             Server.agent_installed == True,
+            Server.data_source == "agent",
             Server.agent_last_seen.isnot(None),
             Server.agent_last_seen < cutoff,
             Server.status != "agent_offline",
