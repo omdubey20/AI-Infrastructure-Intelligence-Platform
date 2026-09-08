@@ -114,6 +114,7 @@ def receive_agent_report(report: AgentReport, request: Request, db: Session = De
         server.running_services = report.running_services
 
     server.data_source = "agent"
+    server.metrics_provenance = "live_probed"
     server.agent_last_seen = now
     server.agent_installed = True
     server.status = "active"

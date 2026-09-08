@@ -88,7 +88,7 @@ def list_servers(
             "disk_usage": s.disk_usage or 0,
             "risk_score": s.risk_score or 0,
             "data_source": s.data_source or "estimated",
-            "metrics_provenance": getattr(s, "metrics_provenance", None) or ("load_derived_estimate" if s.data_source == "whm" else "live_probed"),
+            "metrics_provenance": "live_probed" if s.data_source in ("agent", "ssh") else (getattr(s, "metrics_provenance", None) or "load_derived_estimate"),
             "last_scanned_at": s.last_scanned_at,
             "projects_count": counts.get(s.id, 0),
             "has_ssh_creds": bool(s.ssh_password or s.ssh_private_key),
@@ -144,7 +144,7 @@ def get_server(
         "swap_usage": getattr(server, "swap_usage", 0),
         "open_ports": getattr(server, "open_ports", ""),
         "data_source": server.data_source,
-        "metrics_provenance": getattr(server, "metrics_provenance", None) or ("load_derived_estimate" if server.data_source == "whm" else "live_probed"),
+        "metrics_provenance": "live_probed" if server.data_source in ("agent", "ssh") else (getattr(server, "metrics_provenance", None) or "load_derived_estimate"),
         "last_scanned_at": server.last_scanned_at,
         "projects_count": len(discoveries),
         "projects": [

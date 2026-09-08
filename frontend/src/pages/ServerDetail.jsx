@@ -73,7 +73,7 @@ export default function ServerDetail() {
           </button>
           <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#f1f5f9" }}>{server.name}</h1>
           <p style={{ fontSize: "13px", color: "#94a3b8", marginTop: "4px" }}>
-            {server.ip_address} · {server.environment} · {server.data_source === "ssh" ? "LIVE SSH" : "WHM ESTIMATED"}
+            {server.ip_address} · {server.environment} · {server.data_source === "agent" ? "🟢 LIVE AGENT" : server.data_source === "ssh" ? "🟢 LIVE SSH" : "⚡ WHM ESTIMATED"}
           </p>
         </div>
 

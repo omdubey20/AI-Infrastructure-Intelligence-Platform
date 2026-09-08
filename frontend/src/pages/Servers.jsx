@@ -212,8 +212,8 @@ export default function Servers() {
                       </span>
                     </td>
                     <td>
-                      <span className={s.data_source === "ssh" ? "badge badge-green" : "badge badge-blue"}>
-                        {s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : s.data_source || "Estimated"}
+                      <span className={(s.data_source === "agent" || s.data_source === "ssh") ? "badge badge-green" : "badge badge-blue"}>
+                        {s.data_source === "agent" ? "⚡ LIVE AGENT" : s.data_source === "ssh" ? "LIVE SSH" : s.data_source === "whm" ? "WHM API" : (s.data_source || "Estimated").toUpperCase()}
                       </span>
                     </td>
                     <td>
@@ -225,9 +225,9 @@ export default function Servers() {
                           fontSize: "9px",
                           fontWeight: 700,
                           letterSpacing: "0.05em",
-                          color: (s.metrics_provenance === "load_derived_estimate" || s.data_source === "whm") ? "#fbbf24" : "#4ade80"
+                          color: (s.data_source === "agent" || s.data_source === "ssh" || s.metrics_provenance === "live_probed") ? "#4ade80" : "#fbbf24"
                         }}>
-                          {(s.metrics_provenance === "load_derived_estimate" || s.data_source === "whm") ? "⚡ ESTIMATED (LOAD)" : "🟢 LIVE OS"}
+                          {(s.data_source === "agent" || s.data_source === "ssh" || s.metrics_provenance === "live_probed") ? "🟢 LIVE OS" : "⚡ ESTIMATED (LOAD)"}
                         </span>
                       </div>
                     </td>
