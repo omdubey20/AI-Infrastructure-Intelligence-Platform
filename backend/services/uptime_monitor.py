@@ -218,7 +218,7 @@ def run_uptime_checks(db: Session):
                     server_name=server_name,
                 )
 
-        elif result["is_up"] and prev_state is False:
+        elif result["is_up"]:
             open_alerts = db.query(Alert).filter(
                 Alert.site_id == disc_id,
                 Alert.type == "site_down",
