@@ -31,14 +31,20 @@ COPY backend/ ./backend/
 # Copy built frontend from Stage 1 into frontend/build
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
-# Set working directory to backend for execution
+# Copy root delegation proxy
+COPY main.py ./main.py
+
 # Create unprivileged system user for enterprise least-privilege compliance
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+
+# Set working directory to backend for execution
+WORKDIR /app/backend
 USER appuser
 
 # Environment defaults
 ENV PORT=8000
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/backend:/app
 
 EXPOSE 8000
 
