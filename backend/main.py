@@ -244,6 +244,18 @@ async def lifespan(app: FastAPI):
                 finally:
                     db.close()
 
+            # Run immediate uptime health checks on startup so monitoring is instantly fresh
+            from services.uptime_monitor import run_uptime_checks
+            db_uptime = next(get_db())
+            try:
+                logger.info("Startup Uptime Monitor: Running initial website health checks...")
+                run_uptime_checks(db_uptime)
+                logger.info("Startup Uptime Monitor: Health checks completed.")
+            except Exception as uptime_init_err:
+                logger.warning(f"Startup uptime check notice: {uptime_init_err}")
+            finally:
+                db_uptime.close()
+
             # Auto-scan all servers on startup so fresh live data is fetched immediately
             db_scan = next(get_db())
             try:
@@ -255,18 +267,6 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Startup auto-scan notice: {scan_init_err}")
             finally:
                 db_scan.close()
-
-            # Run immediate uptime health checks on startup
-            from services.uptime_monitor import run_uptime_checks
-            db_uptime = next(get_db())
-            try:
-                logger.info("Startup Uptime Monitor: Running initial website health checks...")
-                run_uptime_checks(db_uptime)
-                logger.info("Startup Uptime Monitor: Health checks completed.")
-            except Exception as uptime_init_err:
-                logger.warning(f"Startup uptime check notice: {uptime_init_err}")
-            finally:
-                db_uptime.close()
         except Exception as db_init_err:
             logger.warning(f"Database initialization notice: {db_init_err}")
 

@@ -30,7 +30,11 @@ export default function Monitoring() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 300000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchStatus();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 

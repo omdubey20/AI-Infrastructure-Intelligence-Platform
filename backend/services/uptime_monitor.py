@@ -192,6 +192,7 @@ def run_uptime_checks(db: Session):
             error_message=result["error_message"],
             ssl_valid=result["ssl_valid"],
             ssl_expiry_days=result["ssl_expiry_days"],
+            checked_at=datetime.utcnow(),
         )
         db.add(check)
         checked += 1
@@ -252,6 +253,15 @@ def run_uptime_checks(db: Session):
             for a in open_ssl:
                 a.is_resolved = True
                 a.resolved_at = datetime.utcnow()
+
+    # Commit all recorded checks and alert resolutions immediately
+    try:
+        db.commit()
+        logger.info(f"Uptime monitor: Committed {checked} live checks to database.")
+    except Exception as commit_err:
+        logger.error(f"Uptime monitor: Failed to commit checks: {commit_err}")
+        db.rollback()
+        return checked
 
     # Auto-prune checks older than 14 days to prevent unbounded database growth
     try:
