@@ -17,6 +17,49 @@ const SEV_STYLE = {
   info: { bg: "rgba(56,189,248,0.1)", border: "rgba(56,189,248,0.3)", color: "#38bdf8", label: "INFO" },
 };
 
+function parseUtcDate(dateStr) {
+  if (!dateStr) return null;
+  let str = String(dateStr).trim();
+  // Ensure UTC interpretation if no timezone offset is present
+  if (!str.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(str)) {
+    str += "Z";
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatRelativeTime(dateStr) {
+  const d = parseUtcDate(dateStr);
+  if (!d) return "-";
+  const now = new Date();
+  const diffSec = Math.max(0, Math.floor((now.getTime() - d.getTime()) / 1000));
+
+  let rel;
+  if (diffSec < 45) {
+    rel = "just now";
+  } else if (diffSec < 3600) {
+    const mins = Math.max(1, Math.round(diffSec / 60));
+    rel = `${mins}m ago`;
+  } else if (diffSec < 86400) {
+    const hrs = Math.round(diffSec / 3600);
+    rel = `${hrs}h ago`;
+  } else {
+    const days = Math.round(diffSec / 86400);
+    rel = `${days}d ago`;
+  }
+
+  const timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const isToday = d.toDateString() === now.toDateString();
+  const datePart = isToday ? "" : `${d.toLocaleDateString()} `;
+
+  return `${datePart}${timeStr} (${rel})`;
+}
+
+function formatFullDateTime(dateStr) {
+  const d = parseUtcDate(dateStr);
+  return d ? `${d.toLocaleDateString()} ${d.toLocaleTimeString()}` : "-";
+}
+
 export default function Alerts() {
   const [alerts, setAlerts] = useState([]);
   const [malware, setMalware] = useState([]);
@@ -276,10 +319,10 @@ export default function Alerts() {
                         <div style={{ marginTop: "6px", fontSize: "11px", color: "#64748b", display: "flex", gap: "16px", flexWrap: "wrap" }}>
                           {a.server_name && <span>Server: <b>{a.server_name}</b></span>}
                           {a.site_domain && <span>Site: <b>{a.site_domain}</b></span>}
-                          <span>Triggered: {new Date(a.created_at).toLocaleDateString()} {new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span title={formatFullDateTime(a.created_at)}>Triggered: {formatRelativeTime(a.created_at)}</span>
                           {a.server_last_scanned_at && (
-                            <span style={{ color: "#38bdf8" }}>
-                              Fleet Scan: {new Date(a.server_last_scanned_at).toLocaleDateString()} {new Date(a.server_last_scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({a.server_data_source ? a.server_data_source.toUpperCase() : "Active"})
+                            <span style={{ color: "#38bdf8" }} title={`Last scanned: ${formatFullDateTime(a.server_last_scanned_at)}`}>
+                              Fleet Scan: {formatRelativeTime(a.server_last_scanned_at)} ({a.server_data_source ? a.server_data_source.toUpperCase() : "Active"})
                             </span>
                           )}
                           {(a.whatsapp_sent_at || a.teams_sent_at) && (
@@ -348,7 +391,7 @@ export default function Alerts() {
                           </span>
                         </td>
                         <td style={{ color: "#94a3b8", fontSize: "12px", maxWidth: "250px" }}>{m.details}</td>
-                        <td style={{ color: "#64748b", fontSize: "11px" }}>{m.detected_at ? new Date(m.detected_at).toLocaleString() : "-"}</td>
+                        <td style={{ color: "#64748b", fontSize: "11px" }} title={formatFullDateTime(m.detected_at)}>{m.detected_at ? formatRelativeTime(m.detected_at) : "-"}</td>
                         <td>
                           <button onClick={() => handleResolveMalware(m.id)} style={{
                             background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)",

@@ -14,6 +14,14 @@ from routers.auth import get_current_user, require_role
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 
+def _format_utc(dt: Optional[datetime]) -> Optional[str]:
+    """Format naive UTC datetime as ISO string with explicit 'Z' suffix."""
+    if not dt:
+        return None
+    iso = dt.isoformat()
+    return iso if (iso.endswith("Z") or "+" in iso) else iso + "Z"
+
+
 @router.get("/")
 def get_alerts(
     alert_type: Optional[str] = None,
@@ -53,7 +61,7 @@ def get_alerts(
                 "server_name": a.server.name if a.server else None,
                 "server_status": a.server.status if a.server else None,
                 "server_data_source": a.server.data_source if a.server else None,
-                "server_last_scanned_at": a.server.last_scanned_at.isoformat() if (a.server and a.server.last_scanned_at) else None,
+                "server_last_scanned_at": _format_utc(a.server.last_scanned_at) if (a.server and a.server.last_scanned_at) else None,
                 "site_id": a.site_id,
                 "site_domain": a.site.domain if a.site else None,
                 "type": a.type,
@@ -61,11 +69,11 @@ def get_alerts(
                 "message": a.message,
                 "is_resolved": a.is_resolved,
                 "notification_sent": a.notification_sent,
-                "whatsapp_sent_at": a.whatsapp_sent_at.isoformat() if a.whatsapp_sent_at else None,
-                "teams_sent_at": a.teams_sent_at.isoformat() if a.teams_sent_at else None,
-                "email_sent_at": a.email_sent_at.isoformat() if a.email_sent_at else None,
-                "created_at": a.created_at.isoformat() if a.created_at else None,
-                "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
+                "whatsapp_sent_at": _format_utc(a.whatsapp_sent_at),
+                "teams_sent_at": _format_utc(a.teams_sent_at),
+                "email_sent_at": _format_utc(a.email_sent_at),
+                "created_at": _format_utc(a.created_at),
+                "resolved_at": _format_utc(a.resolved_at),
             }
             for a in alerts
         ]
@@ -134,8 +142,8 @@ def get_malware_alerts(
             "severity": a.severity,
             "details": a.details,
             "is_resolved": a.is_resolved,
-            "detected_at": a.detected_at.isoformat() if a.detected_at else None,
-            "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
+            "detected_at": _format_utc(a.detected_at),
+            "resolved_at": _format_utc(a.resolved_at),
         }
         for a in alerts
     ]

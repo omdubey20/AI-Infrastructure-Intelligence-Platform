@@ -87,7 +87,7 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
                 "load_avg_1":     getattr(s, "load_avg_1", 0.0) or 0.0,
                 "data_source":    s.data_source or "estimated",
                 "agent_installed": getattr(s, "agent_installed", False),
-                "last_scanned_at": s.last_scanned_at.isoformat() if s.last_scanned_at else None,
+                "last_scanned_at": (s.last_scanned_at.isoformat() + "Z") if s.last_scanned_at else None,
                 "projects_count": server_breakdown.get(s.id, 0),
                 "insights":       _generate_server_insights(s),
             }

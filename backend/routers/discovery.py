@@ -117,7 +117,7 @@ def scan_status(db: Session = Depends(get_db), current_user=Depends(get_current_
             "name": s.name,
             "ip_address": s.ip_address,
             "scan_status": getattr(s, "scan_status", "never_scanned"),
-            "last_scanned_at": s.last_scanned_at.isoformat() if s.last_scanned_at else None,
+            "last_scanned_at": (s.last_scanned_at.isoformat() + "Z") if s.last_scanned_at else None,
             "data_source": s.data_source or "estimated",
             "projects_count": db.query(ProjectDiscovery).filter(
                 ProjectDiscovery.server_id == s.id
