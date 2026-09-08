@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Server, HealthSnapshot, Alert
+from models import Server, HealthSnapshot, Alert, ProjectDiscovery
 from services.risk_engine import calculate_server_risk
 from services.notification_service import create_and_dispatch_alert
 from routers.auth import get_current_user, require_role
