@@ -57,6 +57,14 @@ def setup_database():
                 role="admin"
             )
             db.add(user)
+            v_user = models.User(
+                username="testviewer",
+                email="viewer@test.com",
+                hashed_password=hash_password("viewerpassword123"),
+                is_active=True,
+                role="viewer"
+            )
+            db.add(v_user)
             db.commit()
     finally:
         db.close()
@@ -88,6 +96,12 @@ def get_auth_token() -> str:
 
 def auth_headers() -> dict:
     return {"Authorization": f"Bearer {get_auth_token()}"}
+
+
+def viewer_headers() -> dict:
+    from routers.auth import create_access_token
+    token = create_access_token(data={"sub": "testviewer", "role": "viewer"})
+    return {"Authorization": f"Bearer {token}"}
 
 
 # ============================================================
@@ -566,3 +580,22 @@ class TestSecurityAndRemediation:
         assert "••••" in data["smtp_password"]
         assert data["whatsapp_api_key_configured"] is True
         assert data["smtp_password_configured"] is True
+
+    def test_ml_train_requires_admin_or_devops(self):
+        resp = client.post("/ml/train", headers=viewer_headers())
+        assert resp.status_code == 403
+        assert "permission" in resp.json()["detail"].lower()
+
+    def test_ai_refresh_requires_admin_or_devops(self):
+        resp = client.post("/ai/refresh", headers=viewer_headers())
+        assert resp.status_code == 403
+        assert "permission" in resp.json()["detail"].lower()
+
+    def test_metrics_provenance_in_servers_api(self):
+        resp = client.get("/servers/", headers=auth_headers())
+        assert resp.status_code == 200
+        servers = resp.json()
+        assert len(servers) > 0
+        for s in servers:
+            assert "metrics_provenance" in s
+            assert s["metrics_provenance"] in ("live_probed", "load_derived_estimate")

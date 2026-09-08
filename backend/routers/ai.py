@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db
 from models import AIInsight
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_role
 from services.ai_insights_engine import generate_all_insights
 
 router = APIRouter(prefix="/ai", tags=["AI Insights"])
@@ -54,7 +54,7 @@ def get_insights(
 @router.post("/refresh")
 def refresh_ai(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(require_role(["admin", "devops"]))
 ):
     insights = generate_all_insights(db)
     return {"message": "AI insights refreshed successfully", "count": len(insights)}

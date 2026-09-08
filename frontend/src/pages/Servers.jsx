@@ -217,9 +217,19 @@ export default function Servers() {
                       </span>
                     </td>
                     <td>
-                      <span style={{ fontSize: "12px", color: "#94a3b8" }}>
-                        {s.cpu_usage || 0}% / {s.memory_usage || 0}% / {s.disk_usage || 0}%
-                      </span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                        <span style={{ fontSize: "12px", color: "#94a3b8" }}>
+                          {s.cpu_usage || 0}% / {s.memory_usage || 0}% / {s.disk_usage || 0}%
+                        </span>
+                        <span style={{
+                          fontSize: "9px",
+                          fontWeight: 700,
+                          letterSpacing: "0.05em",
+                          color: (s.metrics_provenance === "load_derived_estimate" || s.data_source === "whm") ? "#fbbf24" : "#4ade80"
+                        }}>
+                          {(s.metrics_provenance === "load_derived_estimate" || s.data_source === "whm") ? "⚡ ESTIMATED (LOAD)" : "🟢 LIVE OS"}
+                        </span>
+                      </div>
                     </td>
                     <td style={{ fontWeight: 800, color: "#f1f5f9" }}>{s.projects_count ?? 0}</td>
                     <td style={{ fontWeight: 800, color: (s.risk_score || 0) >= 60 ? "#f87171" : "#4ade80" }}>

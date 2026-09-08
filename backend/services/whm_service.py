@@ -26,7 +26,14 @@ def _whm_get(host: str, token: str, port: int, endpoint: str, params: dict = Non
     }
 
     session = requests.Session()
-    session.verify = False
+    ca_bundle = os.getenv("WHM_CA_BUNDLE")
+    verify_ssl = os.getenv("WHM_VERIFY_SSL", "false").lower() in ("true", "1", "yes")
+    if ca_bundle and os.path.exists(ca_bundle):
+        session.verify = ca_bundle
+    else:
+        session.verify = verify_ssl
+    if not session.verify:
+        logger.debug(f"WHM API [{host}]: Insecure TLS mode active (WHM_VERIFY_SSL=false)")
 
     targets = [
         ("https", port or 2087),

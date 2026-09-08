@@ -32,13 +32,19 @@ COPY backend/ ./backend/
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
 # Set working directory to backend for execution
-WORKDIR /app/backend
+# Create unprivileged system user for enterprise least-privilege compliance
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
 
 # Environment defaults
 ENV PORT=8000
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
+
+# Healthcheck for container orchestrators (Docker Swarm / Kubernetes / Railway)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
 # Start Uvicorn server on $PORT provided dynamically by Railway
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]

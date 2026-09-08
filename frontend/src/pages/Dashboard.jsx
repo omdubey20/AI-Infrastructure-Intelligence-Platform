@@ -147,6 +147,22 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Telemetry Data Provenance Indicator */}
+      <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "20px", flexWrap: "wrap" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", color: "#4ade80", fontWeight: 700 }}>
+          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", display: "inline-block" }} />
+          LIVE OS TELEMETRY (SSH / Agent)
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", color: "#fbbf24", fontWeight: 700 }}>
+          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#fbbf24", display: "inline-block" }} />
+          LOAD-DERIVED ESTIMATES (WHM API)
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(56,189,248,0.08)", border: "1px solid rgba(56,189,248,0.25)", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", color: "#38bdf8", fontWeight: 700 }}>
+          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#38bdf8", display: "inline-block" }} />
+          24H SUBQUERY SQL AGGREGATION
+        </div>
+      </div>
+
       {/* KPI Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "16px", marginBottom: "28px" }}>
         <div onClick={() => navigate("/servers")} style={{ cursor: "pointer" }}>

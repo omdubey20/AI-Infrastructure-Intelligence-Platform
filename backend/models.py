@@ -107,6 +107,7 @@ class Server(Base):
 
     # --- Scan State ---
     data_source = Column(String, default="estimated")  # agent, ssh, whm, estimated
+    metrics_provenance = Column(String, default="live_probed") # live_probed, load_derived_estimate
     last_scanned_at = Column(DateTime, nullable=True)
     last_full_scan_at = Column(DateTime, nullable=True)
     scan_status = Column(String, default="never_scanned")  # scanning, success, error, never_scanned
@@ -190,7 +191,7 @@ class ProjectDiscovery(Base):
 
     # --- Duplicate Detection ---
     is_duplicate = Column(Boolean, default=False)
-    duplicate_of_id = Column(Integer, ForeignKey("project_discoveries.id"), nullable=True)
+    duplicate_of_id = Column(Integer, ForeignKey("project_discoveries.id", ondelete="SET NULL"), nullable=True)
     duplicate_confidence = Column(Integer, default=0)  # 0-100
     duplicate_signals = Column(Text, nullable=True)    # JSON: matched signals
 

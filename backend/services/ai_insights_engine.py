@@ -57,8 +57,8 @@ def generate_all_insights(db) -> list:
             _record_insight(
                 s.id, "resource", "critical",
                 f"High CPU utilization on {s.name}",
-                f"CPU usage is at {s.cpu_usage}%, exceeding the 85% safety threshold.",
-                "Scale CPU resources or rebalance container workloads to secondary web nodes."
+                f"CPU usage is at {s.cpu_usage}%, exceeding the 85% safety threshold. Threat of kernel throttling or dropped requests.",
+                "### Root Cause\nRunaway daemon process or unindexed database queries saturating CPU cores.\n\n### Remediation Action\n```bash\n# Inspect top CPU consuming processes\nps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head -10\n# Gracefully restart application workers\nsystemctl restart php-fpm 2>/dev/null || systemctl restart nginx\n```"
             )
 
         # High Memory
@@ -66,8 +66,8 @@ def generate_all_insights(db) -> list:
             _record_insight(
                 s.id, "resource", "warning",
                 f"Memory pressure on {s.name}",
-                f"RAM usage is at {s.memory_usage}%. System may experience swap thrashing.",
-                "Investigate memory leaks or upgrade RAM allocation."
+                f"RAM usage is at {s.memory_usage}%. Physical memory exhausted; system risks OOM-killer termination or swap thrashing.",
+                "### Root Cause\nMemory leak in background workers or oversized in-memory caching pools.\n\n### Remediation Action\n```bash\n# Check memory allocation per process\nps -eo pid,cmd,%mem --sort=-%mem | head -10\n# Release reclaimable kernel page cache\nsync; echo 3 > /proc/sys/vm/drop_caches\n```"
             )
 
         # High Disk
@@ -75,8 +75,8 @@ def generate_all_insights(db) -> list:
             _record_insight(
                 s.id, "resource", "critical",
                 f"Disk space nearly full on {s.name}",
-                f"Disk usage reached {s.disk_usage}%. Storage exhaustion imminent.",
-                "Clean up log archives, remove duplicate project builds, or expand disk volume."
+                f"Disk usage reached {s.disk_usage}%. Storage exhaustion imminent. Services may fail to write state or rotate logs.",
+                "### Root Cause\nUncapped log growth in /var/log or stale duplicate project archives in web roots.\n\n### Remediation Action\n```bash\n# Identify top 10 space consumers in /var/log\ndu -ahx /var/log 2>/dev/null | sort -rh | head -10\n# Trim systemd journal logs older than 3 days\njournalctl --vacuum-time=3d\n```"
             )
 
         # SSL Expiring
@@ -84,8 +84,8 @@ def generate_all_insights(db) -> list:
             _record_insight(
                 s.id, "ssl", "warning" if s.ssl_expiry_days > 7 else "critical",
                 f"SSL certificate expiring in {s.ssl_expiry_days} days on {s.name}",
-                f"TLS certificate for hosted domains expires in {s.ssl_expiry_days} days.",
-                "Run certbot renewal or re-issue SSL certificate via WHM/cPanel."
+                f"TLS certificate for hosted domains expires in {s.ssl_expiry_days} days. Browsers will throw security warnings.",
+                "### Root Cause\nACME Certbot renewal cron failed or WHM AutoSSL challenge encountered DNS mismatch.\n\n### Remediation Action\n```bash\n# Test certbot renewal validity\ncertbot renew --dry-run\n# Force immediate certificate renewal\ncertbot renew --force-renewal\n```"
             )
 
         # Security: No Firewall
@@ -93,8 +93,8 @@ def generate_all_insights(db) -> list:
             _record_insight(
                 s.id, "security", "warning",
                 f"Firewall disabled on {s.name}",
-                "Server firewall is inactive or disabled, exposing all open ports.",
-                "Enable UFW or firewall-cmd and configure strict inbound security rules."
+                "Server packet filter is inactive or disabled, exposing open daemon ports to public scanning.",
+                "### Root Cause\nHost packet filter disabled after reboot, leaving internal services exposed.\n\n### Remediation Action\n```bash\n# Lock down firewall with safe SSH preservation\nufw allow 22/tcp && ufw default deny incoming && ufw default allow outgoing && ufw enable\n```"
             )
 
     # 2. Project-level insights

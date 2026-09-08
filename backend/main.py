@@ -101,6 +101,7 @@ def migrate_db_schema():
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_port" INTEGER DEFAULT 587',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_user" VARCHAR(255)',
         'ALTER TABLE "alert_configs" ADD COLUMN IF NOT EXISTS "smtp_password" VARCHAR(255)',
+        'ALTER TABLE "servers" ADD COLUMN IF NOT EXISTS "metrics_provenance" VARCHAR DEFAULT \'live_probed\'',
         'CREATE UNIQUE INDEX IF NOT EXISTS uq_pd_server_project_lower ON project_discoveries (server_id, LOWER(project_name))',
     ]
     for sql in migrations:
@@ -123,19 +124,32 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 scheduler = BackgroundScheduler()
 
 
+def _scan_single_server_worker(server_id: int):
+    worker_db = next(get_db())
+    try:
+        srv = worker_db.query(Server).filter(Server.id == server_id).first()
+        if srv:
+            if srv.agent_installed and srv.data_source == "agent":
+                return
+            scan_server_projects(worker_db, srv, triggered_by="scheduler")
+            worker_db.commit()
+    except Exception as scan_err:
+        logger.warning(f"APScheduler parallel scan error on server {server_id}: {scan_err}")
+        worker_db.rollback()
+    finally:
+        worker_db.close()
+
+
 def fleet_background_sync_job():
-    """Background fleet synchronization (every 10 min) — rescans server metrics, detects duplicates, refreshes AI insights & retrains ML pipeline."""
-    logger.info("APScheduler: Running 10-minute fleet background sync job...")
+    """Background fleet synchronization (every 10 min) — concurrently rescans server metrics, detects duplicates, and refreshes AI insights."""
+    logger.info("APScheduler: Running 10-minute fleet background sync job (parallel executor)...")
     db = next(get_db())
     try:
-        all_servers = db.query(Server).all()
-        for server in all_servers:
-            if server.agent_installed and server.data_source == "agent":
-                continue
-            try:
-                scan_server_projects(db, server, triggered_by="scheduler")
-            except Exception as scan_err:
-                logger.warning(f"APScheduler: Failed to scan {server.name}: {scan_err}")
+        server_ids = [s[0] for s in db.query(Server.id).all()]
+        if server_ids:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                list(executor.map(_scan_single_server_worker, server_ids))
 
         discoveries = db.query(ProjectDiscovery).all()
         detect_duplicates(discoveries)

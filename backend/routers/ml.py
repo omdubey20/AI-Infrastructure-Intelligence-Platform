@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Server
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_role
 from services.ml_pipeline import (
     train_and_evaluate_pipeline,
     EXPERIMENT_NAME,
@@ -107,7 +107,7 @@ def get_ml_status(current_user=Depends(get_current_user)):
 @router.post("/train")
 def trigger_ml_training(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_role(["admin", "devops"])),
 ):
     """Train the ML pipeline using real server data from the database."""
     try:

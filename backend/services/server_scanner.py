@@ -157,7 +157,13 @@ def _safe_float(val, default: float = 0.0) -> float:
 
 def connect_ssh(server) -> Optional[paramiko.SSHClient]:
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    strict_host_key = os.getenv("SSH_STRICT_HOST_KEY", "false").lower() in ("true", "1", "yes")
+    if strict_host_key:
+        client.load_system_host_keys()
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
+    else:
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        logger.debug(f"SSH [{server.ip_address}]: AutoAddPolicy active (SSH_STRICT_HOST_KEY=false)")
 
     hostname = server.ip_address
     port = int(server.ssh_port or 22)
@@ -242,6 +248,26 @@ def collect_system_info(client: paramiko.SSHClient) -> dict:
     uptime_raw = _run(client, "cat /proc/uptime | awk '{print int($1/86400)}'")
     info["uptime_days"] = _safe_int(uptime_raw)
 
+    swap_raw = _run(client, "free -m 2>/dev/null | grep -i swap")
+    parts = swap_raw.split()
+    if len(parts) >= 3:
+        st = _safe_int(parts[1])
+        su = _safe_int(parts[2])
+        info["swap_total_gb"] = round(st / 1024, 1)
+        info["swap_usage"] = int((su / st) * 100) if st > 0 else 0
+
+    docker_check = _run(client, "which docker 2>/dev/null")
+    info["docker_installed"] = bool(docker_check and "docker" in docker_check)
+    if info["docker_installed"]:
+        d_cnt = _run(client, "docker ps -q 2>/dev/null | wc -l")
+        info["docker_containers_running"] = _safe_int(d_cnt)
+    else:
+        info["docker_containers_running"] = 0
+
+    ports_raw = _run(client, "ss -tuln 2>/dev/null || netstat -tuln 2>/dev/null")
+    ports_found = set(re.findall(r":(\d+)\s", ports_raw))
+    info["open_ports"] = ",".join(sorted(ports_found, key=lambda x: int(x))[:20]) if ports_found else ""
+
     return info
 
 
@@ -264,7 +290,27 @@ def discover_projects_via_ssh(client: paramiko.SSHClient) -> list:
                 continue
             seen_paths.add(path)
             domain = dirname if "." in dirname else f"{dirname}.local"
-            projects.append({"name": domain, "domain": domain, "path": path, "source": "ssh"})
+
+            # Dynamic framework & tech stack detection
+            fw_cmd = f"if [ -f '{path}/wp-config.php' ]; then echo 'wordpress'; elif [ -f '{path}/artisan' ] || [ -f '{path}/../artisan' ]; then echo 'laravel'; elif [ -f '{path}/package.json' ]; then echo 'nodejs'; elif [ -f '{path}/requirements.txt' ]; then echo 'python'; elif [ -f '{path}/index.php' ]; then echo 'php'; elif [ -f '{path}/index.html' ]; then echo 'static'; else echo 'php'; fi"
+            fw = _run(client, fw_cmd, timeout=2).strip() or "php"
+            lang_map = {"wordpress": "php", "laravel": "php", "php": "php", "nodejs": "javascript", "python": "python", "static": "html"}
+
+            # File modification date
+            mtime_raw = _run(client, f"stat -c %Y '{path}' 2>/dev/null || stat -f %m '{path}' 2>/dev/null", timeout=2).strip()
+            days_mod = 10
+            if mtime_raw and mtime_raw.isdigit():
+                days_mod = max(0, int((time.time() - int(mtime_raw)) / 86400))
+
+            projects.append({
+                "name": domain,
+                "domain": domain,
+                "path": path,
+                "source": "ssh",
+                "framework": fw,
+                "language": lang_map.get(fw, "php"),
+                "days_since_modified": days_mod
+            })
 
     return projects
 
@@ -286,15 +332,32 @@ def check_ssl(domain: str) -> Tuple[bool, Optional[int]]:
     import ssl
     try:
         ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        with socket.create_connection((domain, 443), timeout=10) as sock:
-            with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                cert = ssock.getpeercert(binary_form=True)
-                if cert:
-                    return True, 60
+        raw_sock = socket.socket()
+        raw_sock.settimeout(6)
+        with ctx.wrap_socket(raw_sock, server_hostname=domain) as s:
+            s.connect((domain, 443))
+            cert = s.getpeercert()
+            if cert and "notAfter" in cert:
+                not_after = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
+                days = (not_after - datetime.utcnow()).days
+                return True, max(0, days)
     except Exception:
-        pass
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with socket.create_connection((domain, 443), timeout=6) as sock:
+                with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                    der_cert = ssock.getpeercert(binary_form=True)
+                    if der_cert:
+                        from cryptography import x509
+                        from cryptography.hazmat.backends import default_backend
+                        x_cert = x509.load_der_x509_certificate(der_cert, default_backend())
+                        na = x_cert.not_valid_after_utc.replace(tzinfo=None)
+                        days = (na - datetime.utcnow()).days
+                        return True, max(0, days)
+        except Exception:
+            pass
     return False, None
 
 
@@ -356,6 +419,7 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
             setattr(server, key, val)
 
     server.data_source = "ssh"
+    server.metrics_provenance = "live_probed"
     server.status = "active"
     server.scan_status = "success"
     server.scan_error = None
@@ -490,6 +554,7 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                 server.memory_usage = min(95, max(10, int(load5 * 20))) if load5 > 0 else (server.memory_usage or 35)
                 server.disk_usage = disk_pct if disk_pct > 0 else (server.disk_usage or 35)
                 server.data_source = "whm"
+                server.metrics_provenance = "load_derived_estimate"
                 server.status = "active"
                 server.scan_status = "success"
                 server.scan_error = None
