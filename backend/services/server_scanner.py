@@ -626,6 +626,31 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                         updated_count += 1
 
                 db.commit()
+
+                # Automatically prune suspended, inactive, or stale projects that are no longer active in WHM
+                active_domain_set = {str(a.get("domain", "")).strip().lower() for a in unique_accts if a.get("domain")}
+                active_user_set = {str(a.get("user", "")).strip().lower() for a in unique_accts if a.get("user")}
+
+                existing_discoveries = db.query(ProjectDiscovery).filter(
+                    ProjectDiscovery.server_id == server.id
+                ).all()
+                stale_ids = []
+                for disc in existing_discoveries:
+                    disc_domain = str(disc.domain or disc.project_name or "").strip().lower()
+                    disc_owner = str(disc.owner or "").strip().lower()
+                    if disc_domain not in active_domain_set and disc_owner not in active_user_set:
+                        logger.info(f"Pruning inactive/suspended project {disc.project_name} for server {server.name}")
+                        stale_ids.append(disc.id)
+
+                if stale_ids:
+                    from models import UptimeCheck, Alert, AIInsight
+                    db.query(UptimeCheck).filter(UptimeCheck.site_id.in_(stale_ids)).update({UptimeCheck.site_id: None}, synchronize_session=False)
+                    db.query(Alert).filter(Alert.site_id.in_(stale_ids)).update({Alert.site_id: None}, synchronize_session=False)
+                    db.query(AIInsight).filter(AIInsight.project_id.in_(stale_ids)).delete(synchronize_session=False)
+                    db.query(ProjectDiscovery).filter(ProjectDiscovery.duplicate_of_id.in_(stale_ids)).update({ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
+                    db.query(ProjectDiscovery).filter(ProjectDiscovery.id.in_(stale_ids)).delete(synchronize_session=False)
+                    db.commit()
+
                 job.data_source = "whm"
                 job.projects_found = len(unique_accts)
                 job.projects_created = created_count

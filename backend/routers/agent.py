@@ -149,29 +149,68 @@ def receive_agent_report(report: AgentReport, request: Request, db: Session = De
 
     # Process local projects discovered by agent
     if report.discovered_projects:
-        from services.server_scanner import upsert_discovery
+        from services.server_scanner import upsert_discovery, resolve_whm_token
+        whm_token = resolve_whm_token(server)
+
+        # If this server has WHM, WHM is authoritative for accounts.
+        # The agent should ONLY enrich existing verified projects (e.g. tech stack, size).
+        # It must NEVER insert unverified disk folders or suspended cPanel accounts.
+        existing_projects = db.query(ProjectDiscovery).filter(
+            ProjectDiscovery.server_id == server.id
+        ).all()
+        existing_by_domain = {str(p.domain or p.project_name).strip().lower(): p for p in existing_projects}
+        existing_by_owner = {str(p.owner).strip().lower(): p for p in existing_projects if p.owner}
+
         for proj in report.discovered_projects:
             if isinstance(proj, dict) and proj.get("name"):
-                proj_data = {
-                    "name": proj.get("name"),
-                    "domain": proj.get("domain") or proj.get("name"),
-                    "path": proj.get("path") or "/var/www/html",
-                    "owner": proj.get("owner") or "root",
-                    "framework": proj.get("framework") or "php",
-                    "language": proj.get("language") or "php",
-                    "size_mb": proj.get("size_mb", 100),
-                    "dns_points_here": True,
-                    "web_config_active": True,
-                    "has_ssl": True,
-                    "ssl_expiry_days": 60,
-                    "days_since_modified": 10,
-                    "is_live": True,
-                    "is_inactive": False,
-                    "env_type": "live",
-                    "risk_score": 15,
-                    "data_source": "agent",
-                }
-                upsert_discovery(db, server.id, proj_data)
+                proj_name = str(proj.get("name", "")).strip()
+                proj_domain = str(proj.get("domain") or proj_name).strip()
+                proj_owner = str(proj.get("owner") or "").strip()
+                proj_path = proj.get("path") or "/var/www/html"
+
+                # 1. Skip default server hostnames or cPanel infrastructure roots
+                if "cprapid.com" in proj_domain.lower() or "cpanel" in proj_domain.lower() or (proj_path == "/var/www/html" and proj_owner in ("www-data", "root")):
+                    continue
+
+                # 2. Skip system user directories
+                if proj_owner.lower() in ("backup", "virtfs", "cpeasyapache", "aquota.user", "nobody", "root"):
+                    continue
+
+                if whm_token:
+                    # WHM server: find existing active project to enrich
+                    matched = existing_by_domain.get(proj_domain.lower()) or existing_by_owner.get(proj_owner.lower())
+                    if not matched:
+                        # Skip! Do not insert suspended or unmanaged disk directories
+                        continue
+                    # Enrich existing live project with agent-discovered details
+                    matched.framework = proj.get("framework") or matched.framework or "php"
+                    matched.language = proj.get("language") or matched.language or "php"
+                    if proj.get("size_mb"):
+                        matched.size_mb = proj.get("size_mb")
+                    matched.data_source = "agent"
+                    matched.last_synced_at = now
+                else:
+                    # Non-WHM server: upsert normally
+                    proj_data = {
+                        "name": proj_name,
+                        "domain": proj_domain,
+                        "path": proj_path,
+                        "owner": proj_owner or "root",
+                        "framework": proj.get("framework") or "php",
+                        "language": proj.get("language") or "php",
+                        "size_mb": proj.get("size_mb", 100),
+                        "dns_points_here": True,
+                        "web_config_active": True,
+                        "has_ssl": True,
+                        "ssl_expiry_days": 60,
+                        "days_since_modified": 10,
+                        "is_live": True,
+                        "is_inactive": False,
+                        "env_type": "live",
+                        "risk_score": 15,
+                        "data_source": "agent",
+                    }
+                    upsert_discovery(db, server.id, proj_data)
 
     # Check alert thresholds and dispatch notifications
     _check_threshold_alerts(db, server)
@@ -534,33 +573,37 @@ def discover_local_projects():
     projs = []
     seen = set()
     userdomain_map = {{}}
-    if os.path.exists("/etc/userdomains"):
+    suspended_users = set()
+
+    # 1. Detect suspended cPanel accounts directly from cPanel status
+    if os.path.exists("/var/cpanel/suspended"):
         try:
-            with open("/etc/userdomains") as f:
-                for line in f:
-                    if ":" in line:
-                        dom, usr = line.split(":", 1)
-                        userdomain_map[usr.strip()] = dom.strip()
+            suspended_users = set(os.listdir("/var/cpanel/suspended"))
         except Exception:
             pass
 
-    if os.path.exists("/var/www/html"):
+    # 2. Prefer /etc/trueuserdomains (cPanel primary domains) over /etc/userdomains (includes aliases/subdomains)
+    domain_file = "/etc/trueuserdomains" if os.path.exists("/etc/trueuserdomains") else ("/etc/userdomains" if os.path.exists("/etc/userdomains") else None)
+    if domain_file:
         try:
-            if os.listdir("/var/www/html"):
-                hostname = "web-app"
-                try:
-                    hostname = subprocess.check_output(["hostname"], timeout=2).decode().strip()
-                except Exception:
-                    pass
-                dom = hostname if "." in hostname else (hostname + ".local")
-                seen.add("/var/www/html")
-                projs.append(dict(name=dom, domain=dom, path="/var/www/html", owner="www-data", framework="php"))
+            with open(domain_file) as f:
+                for line in f:
+                    if ":" in line:
+                        dom, usr = line.split(":", 1)
+                        usr_str = usr.strip()
+                        dom_str = dom.strip()
+                        if usr_str not in userdomain_map:
+                            userdomain_map[usr_str] = dom_str
         except Exception:
             pass
+
+    system_users = {{"backup", "virtfs", "cpeasyapache", "aquota.user", "nobody", "root"}}
 
     if os.path.exists("/home"):
         try:
             for u in os.listdir("/home"):
+                if u in suspended_users or u in system_users:
+                    continue
                 html_path = os.path.join("/home", u, "public_html")
                 if os.path.isdir(html_path):
                     dom = userdomain_map.get(u, u)
@@ -570,7 +613,23 @@ def discover_local_projects():
         except Exception:
             pass
 
-    if os.path.exists("/var/www"):
+    if not projs and os.path.exists("/var/www/html"):
+        try:
+            files = [f for f in os.listdir("/var/www/html") if not f.startswith(".")]
+            if files and files != ["index.html"] and files != ["index.php"]:
+                hostname = "web-app"
+                try:
+                    hostname = subprocess.check_output(["hostname"], timeout=2).decode().strip()
+                except Exception:
+                    pass
+                if "cprapid.com" not in hostname and "cpanel" not in hostname:
+                    dom = hostname if "." in hostname else (hostname + ".local")
+                    seen.add("/var/www/html")
+                    projs.append(dict(name=dom, domain=dom, path="/var/www/html", owner="www-data", framework="php"))
+        except Exception:
+            pass
+
+    if not projs and os.path.exists("/var/www"):
         try:
             for d in os.listdir("/var/www"):
                 wpath = os.path.join("/var/www", d)
