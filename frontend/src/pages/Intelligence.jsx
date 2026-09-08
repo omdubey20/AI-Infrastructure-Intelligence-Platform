@@ -55,7 +55,11 @@ export default function Intelligence() {
 
   useEffect(() => {
     loadIntel();
-    const interval = setInterval(loadIntel, 10000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadIntel();
+      }
+    }, 20000);
     return () => clearInterval(interval);
   }, []);
 

@@ -409,15 +409,8 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
     }
 
 
-KNOWN_SERVER_TOKENS = {
-    "185.220.63.56": "GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E",
-    "212.48.85.72": "GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E",
-    "82.25.27.52": "GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E",
-}
-
-
 def resolve_whm_token(server) -> Optional[str]:
-    """Retrieve or auto-resolve WHM token for server."""
+    """Retrieve decrypted WHM token for server from database or environment."""
     if server.whm_token:
         try:
             token = decrypt_credential(server.whm_token)
@@ -425,12 +418,10 @@ def resolve_whm_token(server) -> Optional[str]:
                 return token.strip()
         except Exception:
             pass
-    if server.ip_address in KNOWN_SERVER_TOKENS:
-        return KNOWN_SERVER_TOKENS[server.ip_address]
     env_token = os.getenv("WHM_TOKEN")
     if env_token and env_token.strip():
         return env_token.strip()
-    return "GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E"
+    return None
 
 
 def _whm_scan(db, server, job: ScanJob) -> dict:

@@ -208,12 +208,19 @@ def get_alert_config(
     phone = cfg.whatsapp_phone_number if (cfg and cfg.whatsapp_phone_number) else env_wa.get("phone_number", "")
     group = cfg.whatsapp_group_id if (cfg and cfg.whatsapp_group_id) else env_wa.get("group_id", "")
 
+    raw_api_key = cfg.whatsapp_api_key if (cfg and cfg.whatsapp_api_key) else env_wa.get("api_key", "")
+    masked_api_key = ("••••••••" + raw_api_key[-4:]) if len(raw_api_key) > 4 else ("••••••••" if raw_api_key else "")
+
+    raw_smtp_pw = cfg.smtp_password if (cfg and cfg.smtp_password) else env_smtp.get("password", "")
+    masked_smtp_pw = "••••••••" if raw_smtp_pw else ""
+
     return {
         "whatsapp_enabled": cfg.whatsapp_enabled if (cfg and cfg.whatsapp_enabled is not None) else env_wa.get("enabled", True),
         "whatsapp_provider": cfg.whatsapp_provider if (cfg and cfg.whatsapp_provider) else env_wa.get("provider", "callmebot"),
         "whatsapp_phone_number": phone,
         "whatsapp_group_id": group,
-        "whatsapp_api_key": cfg.whatsapp_api_key if (cfg and cfg.whatsapp_api_key) else env_wa.get("api_key", ""),
+        "whatsapp_api_key": masked_api_key,
+        "whatsapp_api_key_configured": bool(raw_api_key),
         "whatsapp_account_sid": cfg.whatsapp_account_sid if (cfg and cfg.whatsapp_account_sid) else env_wa.get("account_sid", ""),
         "whatsapp_sender": cfg.whatsapp_sender if (cfg and cfg.whatsapp_sender) else env_wa.get("sender", ""),
         "whatsapp_api_url": cfg.whatsapp_api_url if (cfg and cfg.whatsapp_api_url) else env_wa.get("api_url", ""),
@@ -225,7 +232,8 @@ def get_alert_config(
         "smtp_host": cfg.smtp_host if (cfg and cfg.smtp_host) else env_smtp.get("host", ""),
         "smtp_port": cfg.smtp_port if (cfg and cfg.smtp_port) else env_smtp.get("port", 587),
         "smtp_user": cfg.smtp_user if (cfg and cfg.smtp_user) else env_smtp.get("user", ""),
-        "smtp_password": cfg.smtp_password if (cfg and cfg.smtp_password) else env_smtp.get("password", ""),
+        "smtp_password": masked_smtp_pw,
+        "smtp_password_configured": bool(raw_smtp_pw),
         "teams_configured": bool(env_webhook),
         "email_configured": bool(env_smtp.get("host") and env_smtp.get("user") and env_smtp.get("to")),
     }
@@ -249,7 +257,13 @@ def save_alert_config(
         cfg.whatsapp_phone_number = payload.whatsapp_phone_number.strip()
         cfg.whatsapp_phone = payload.whatsapp_phone_number.strip()
     if payload.whatsapp_group_id is not None: cfg.whatsapp_group_id = payload.whatsapp_group_id.strip()
-    if payload.whatsapp_api_key is not None: cfg.whatsapp_api_key = payload.whatsapp_api_key.strip()
+
+    # Only update secret fields if non-empty and not masked placeholder
+    if payload.whatsapp_api_key is not None:
+        val = payload.whatsapp_api_key.strip()
+        if val and not val.startswith("•") and not val.startswith("*"):
+            cfg.whatsapp_api_key = val
+
     if payload.whatsapp_account_sid is not None: cfg.whatsapp_account_sid = payload.whatsapp_account_sid.strip()
     if payload.whatsapp_sender is not None:
         cfg.whatsapp_sender = payload.whatsapp_sender.strip()
@@ -263,7 +277,11 @@ def save_alert_config(
     if payload.smtp_host is not None: cfg.smtp_host = payload.smtp_host.strip()
     if payload.smtp_port is not None: cfg.smtp_port = payload.smtp_port
     if payload.smtp_user is not None: cfg.smtp_user = payload.smtp_user.strip()
-    if payload.smtp_password is not None: cfg.smtp_password = payload.smtp_password.strip()
+
+    if payload.smtp_password is not None:
+        val = payload.smtp_password.strip()
+        if val and not val.startswith("•") and not val.startswith("*"):
+            cfg.smtp_password = val
 
     db.commit()
     return {"message": "Notification configuration saved successfully!"}

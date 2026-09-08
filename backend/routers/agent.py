@@ -60,39 +60,15 @@ class AgentReport(BaseModel):
 
 @router.post("/report")
 def receive_agent_report(report: AgentReport, request: Request, db: Session = Depends(get_db)):
-    """Receive telemetry report from an installed agent with auto-reconnection recovery."""
-    # 1. Authenticate by API key
-    server = db.query(Server).filter(Server.agent_api_key == report.api_key).first()
+    """Receive telemetry report from an installed agent with strict authentication."""
+    if not report.api_key or not report.api_key.strip():
+        raise HTTPException(status_code=401, detail="Agent API key is required")
 
-    # 2. Auto-recovery: If server was re-added or API key rotated, auto-adopt by IP / hostname
-    if not server:
-        client_ips = []
-        if request.client and request.client.host and request.client.host not in ("127.0.0.1", "localhost", "::1"):
-            client_ips.append(request.client.host)
-        f_header = request.headers.get("x-forwarded-for")
-        if f_header:
-            client_ips.extend([ip.strip() for ip in f_header.split(",") if ip.strip()])
-        if getattr(report, "ip_address", None):
-            client_ips.append(report.ip_address)
-
-        for ip in client_ips:
-            matched = db.query(Server).filter(Server.ip_address == ip).first()
-            if matched:
-                server = matched
-                server.agent_api_key = report.api_key
-                server.agent_installed = True
-                logger.info(f"Auto-adopted reporting agent for server {server.name} ({server.ip_address})")
-                break
-
-        if not server and report.hostname:
-            matched = db.query(Server).filter(Server.hostname == report.hostname).first()
-            if matched:
-                server = matched
-                server.agent_api_key = report.api_key
-                server.agent_installed = True
-                logger.info(f"Auto-adopted reporting agent for server {server.name} via hostname {report.hostname}")
+    # 1. Authenticate strictly by pre-provisioned API key
+    server = db.query(Server).filter(Server.agent_api_key == report.api_key.strip()).first()
 
     if not server:
+        logger.warning(f"Rejected telemetry report: invalid agent API key from client {request.client.host if request.client else 'unknown'}")
         raise HTTPException(status_code=401, detail="Invalid agent API key")
 
     now = datetime.utcnow()

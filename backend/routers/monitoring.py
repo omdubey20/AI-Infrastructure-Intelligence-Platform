@@ -4,9 +4,7 @@ Monitoring Router — Website Uptime Monitoring API
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
-from sqlalchemy.orm import Session
-
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session, joinedload
 from database import get_db
 from models import ProjectDiscovery, UptimeCheck, Server
@@ -36,60 +34,58 @@ def get_monitoring_status(
 
     site_ids = [s.id for s in sites]
 
-    # 2. Fetch the single most-recent check per site and per domain
-    all_checks = db.query(UptimeCheck).order_by(UptimeCheck.checked_at.desc()).all()
+    # 2. Fetch ONLY the single most-recent check per site via subquery (eliminates 60k+ row scan)
+    subq = db.query(
+        UptimeCheck.site_id,
+        func.max(UptimeCheck.id).label("max_id")
+    ).filter(UptimeCheck.site_id.in_(site_ids)).group_by(UptimeCheck.site_id).subquery()
 
-    latest_by_site = {}
+    latest_checks = db.query(UptimeCheck).join(
+        subq, UptimeCheck.id == subq.c.max_id
+    ).all()
+
+    latest_by_site = {c.site_id: c for c in latest_checks if c.site_id}
     latest_by_domain = {}
-    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
-    stats_by_site = {}
-    stats_by_domain = {}
-
-    for c in all_checks:
-        # Track by site_id
-        if c.site_id and c.site_id not in latest_by_site:
-            latest_by_site[c.site_id] = c
-
-        # Track by domain/url
+    for c in latest_checks:
         if c.url:
             clean_dom = c.url.replace("https://", "").replace("http://", "").strip("/").lower()
             if clean_dom not in latest_by_domain:
                 latest_by_domain[clean_dom] = c
 
-        # 24h stats
-        if c.checked_at and c.checked_at >= cutoff_24h:
-            if c.site_id:
-                st = stats_by_site.setdefault(c.site_id, {"total": 0, "up": 0, "rt_sum": 0, "rt_count": 0})
-                st["total"] += 1
-                if c.is_up:
-                    st["up"] += 1
-                    if c.response_time_ms is not None:
-                        st["rt_sum"] += c.response_time_ms
-                        st["rt_count"] += 1
+    # 3. 24-hour stats aggregated directly in SQL
+    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+    stats_rows = db.query(
+        UptimeCheck.site_id,
+        func.count(UptimeCheck.id).label("total"),
+        func.sum(case((UptimeCheck.is_up == True, 1), else_=0)).label("up"),
+        func.avg(UptimeCheck.response_time_ms).label("avg_rt")
+    ).filter(
+        UptimeCheck.checked_at >= cutoff_24h,
+        UptimeCheck.site_id.in_(site_ids)
+    ).group_by(UptimeCheck.site_id).all()
 
-            if c.url:
-                clean_dom = c.url.replace("https://", "").replace("http://", "").strip("/").lower()
-                st_d = stats_by_domain.setdefault(clean_dom, {"total": 0, "up": 0, "rt_sum": 0, "rt_count": 0})
-                st_d["total"] += 1
-                if c.is_up:
-                    st_d["up"] += 1
-                    if c.response_time_ms is not None:
-                        st_d["rt_sum"] += c.response_time_ms
-                        st_d["rt_count"] += 1
+    stats_by_site = {
+        r.site_id: {
+            "total": r.total or 0,
+            "up": r.up or 0,
+            "avg_rt": round(float(r.avg_rt)) if r.avg_rt is not None else None
+        }
+        for r in stats_rows
+    }
 
-    # 3. Build response array (Guaranteed no 'PENDING' cards)
+    # 4. Build response array (Guaranteed fast, no full-table deserialization)
     result = []
     missing_checks = 0
 
     for site in sites:
         clean_dom = (site.domain or "").strip().lower()
         latest = latest_by_site.get(site.id) or latest_by_domain.get(clean_dom)
-        st = stats_by_site.get(site.id) or stats_by_domain.get(clean_dom) or {"total": 0, "up": 0, "rt_sum": 0, "rt_count": 0}
+        st = stats_by_site.get(site.id) or {"total": 0, "up": 0, "avg_rt": None}
 
         total_checks = st["total"]
         up_checks = st["up"]
         uptime_pct = round((up_checks / total_checks * 100), 2) if total_checks > 0 else (99.8 if site.is_live else None)
-        avg_rt = round(st["rt_sum"] / st["rt_count"]) if st["rt_count"] > 0 else (latest.response_time_ms if latest and latest.response_time_ms else (145 if site.is_live else None))
+        avg_rt = st["avg_rt"] if st["avg_rt"] is not None else (latest.response_time_ms if latest and latest.response_time_ms else (145 if site.is_live else None))
 
         server_name = site.server.name if site.server else "Unknown"
 

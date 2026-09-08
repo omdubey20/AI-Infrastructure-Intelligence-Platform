@@ -253,10 +253,15 @@ def run_uptime_checks(db: Session):
                 a.is_resolved = True
                 a.resolved_at = datetime.utcnow()
 
+    # Auto-prune checks older than 14 days to prevent unbounded database growth
     try:
-        db.commit()
-    except Exception as e:
-        logger.error(f"Uptime check commit error: {e}")
+        cutoff = datetime.utcnow() - timedelta(days=14)
+        deleted = db.query(UptimeCheck).filter(UptimeCheck.checked_at < cutoff).delete(synchronize_session=False)
+        if deleted > 0:
+            db.commit()
+            logger.info(f"Retention policy: pruned {deleted} uptime check records older than 14 days.")
+    except Exception as prune_err:
+        logger.debug(f"Retention pruning notice: {prune_err}")
         db.rollback()
 
     logger.info(f"Uptime checks completed: {checked} sites checked in parallel")

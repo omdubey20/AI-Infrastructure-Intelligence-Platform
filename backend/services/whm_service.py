@@ -30,7 +30,6 @@ def _whm_get(host: str, token: str, port: int, endpoint: str, params: dict = Non
 
     targets = [
         ("https", port or 2087),
-        ("http", 2086 if (port == 2087 or not port) else port),
     ]
 
     last_err = None

@@ -57,7 +57,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 5000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchStats();
+      }
+    }, 20000);
     return () => clearInterval(interval);
   }, []);
 

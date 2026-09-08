@@ -525,3 +525,44 @@ class TestMLEngineAndStats:
         assert "live_projects" in data
         assert "healthy_servers" in data
         assert "open_alerts" in data
+
+
+# ============================================================
+# 13: ENTERPRISE REMEDIATION VALIDATION
+# ============================================================
+
+class TestSecurityAndRemediation:
+    def test_agent_rejects_unauthorized_report(self):
+        resp = client.post("/agent/report", json={
+            "api_key": "unauthorized-malicious-key-999",
+            "ip_address": "127.0.0.1",
+            "cpu_usage": 100,
+            "disk_usage": 100,
+        })
+        assert resp.status_code == 401
+        assert "Invalid agent API key" in resp.json()["detail"]
+
+    def test_cleanup_report_endpoint(self):
+        resp = client.get("/cleanup/report", headers=auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "totalprojects" in data
+        assert "projects" in data
+
+    def test_alert_config_masks_sensitive_secrets(self):
+        save_resp = client.post("/alerts/config", json={
+            "whatsapp_enabled": True,
+            "whatsapp_api_key": "secret-callmebot-key-8888",
+            "smtp_password": "super-secret-smtp-password",
+        }, headers=auth_headers())
+        assert save_resp.status_code == 200
+
+        get_resp = client.get("/alerts/config", headers=auth_headers())
+        assert get_resp.status_code == 200
+        data = get_resp.json()
+        assert "secret-callmebot-key" not in data["whatsapp_api_key"]
+        assert "••••" in data["whatsapp_api_key"]
+        assert "super-secret-smtp" not in data["smtp_password"]
+        assert "••••" in data["smtp_password"]
+        assert data["whatsapp_api_key_configured"] is True
+        assert data["smtp_password_configured"] is True

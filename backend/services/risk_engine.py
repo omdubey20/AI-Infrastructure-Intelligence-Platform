@@ -120,9 +120,9 @@ def calculate_server_risk(server):
             score = int(_model.predict(features)[0])
             score = max(0, min(100, score))
 
-            # Apply confidence scaling for non-agent sources
+            # Apply source uncertainty penalty (lower confidence data carries uncertainty penalty)
             if confidence < 1.0:
-                score = min(100, int(score * confidence))
+                score = min(100, score + int((1.0 - confidence) * 10))
 
             # Add freshness penalty
             score = min(100, score + _get_freshness_penalty(server))

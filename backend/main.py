@@ -26,7 +26,7 @@ from services.ai_insights_engine import generate_all_insights
 from services.duplicate_detector import detect_duplicates
 from services.uptime_monitor import uptime_check_job
 
-from routers import stats, projects, servers, discovery, whm, ml, ai, audit, dashboard_spec
+from routers import stats, projects, servers, discovery, whm, ml, ai, audit, dashboard_spec, cleanup
 from routers import monitoring as monitoring_router
 from routers import alerts as alerts_router
 from routers import agent as agent_router
@@ -140,14 +140,6 @@ def fleet_background_sync_job():
         discoveries = db.query(ProjectDiscovery).all()
         detect_duplicates(discoveries)
         generate_all_insights(db)
-
-        # Background automated ML model retraining with latest fleet telemetry
-        try:
-            from services.ml_pipeline import train_and_evaluate_pipeline
-            train_and_evaluate_pipeline(db=db)
-            logger.info("APScheduler: Automated ML pipeline retraining completed.")
-        except Exception as ml_sync_err:
-            logger.warning(f"APScheduler ML retraining notice: {ml_sync_err}")
 
         db.commit()
     except Exception as e:
@@ -321,10 +313,17 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": f"Server Error: {str(exc)}"}
     )
 
-# CORS — regex origin matching ensures valid Access-Control-Allow-Origin with credentials across all environments
+# CORS — securely permit trusted local development and deployed frontend origins
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=".*",
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"^https://.*(\.vercel\.app|\.railway\.app|\.up\.railway\.app)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -336,6 +335,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(servers.router)
 app.include_router(projects.router)
+app.include_router(cleanup.router)
 app.include_router(stats.router)
 app.include_router(discovery.router)
 app.include_router(whm.router)
