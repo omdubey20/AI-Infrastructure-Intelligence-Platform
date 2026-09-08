@@ -2,6 +2,7 @@
 Servers Router
 Provides CRUD management, credentials update, connection testing, discovery scans, and server metrics.
 """
+from datetime import datetime
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -87,8 +88,10 @@ def list_servers(
             "memory_usage": s.memory_usage or 0,
             "disk_usage": s.disk_usage or 0,
             "risk_score": s.risk_score or 0,
-            "data_source": s.data_source or "estimated",
-            "metrics_provenance": "live_probed" if s.data_source in ("agent", "ssh") else (getattr(s, "metrics_provenance", None) or "load_derived_estimate"),
+            "data_source": "agent" if (s.agent_installed and s.agent_last_seen and (datetime.utcnow() - s.agent_last_seen).total_seconds() < 600) else (s.data_source or "estimated"),
+            "metrics_provenance": "live_probed" if (s.agent_installed or s.data_source in ("agent", "ssh")) else (getattr(s, "metrics_provenance", None) or "load_derived_estimate"),
+            "agent_installed": getattr(s, "agent_installed", False),
+            "agent_last_seen": (s.agent_last_seen.isoformat() + "Z") if s.agent_last_seen else None,
             "last_scanned_at": s.last_scanned_at,
             "projects_count": counts.get(s.id, 0),
             "has_ssh_creds": bool(s.ssh_password or s.ssh_private_key),
@@ -143,8 +146,10 @@ def get_server(
         "swap_total_gb": getattr(server, "swap_total_gb", 0.0),
         "swap_usage": getattr(server, "swap_usage", 0),
         "open_ports": getattr(server, "open_ports", ""),
-        "data_source": server.data_source,
-        "metrics_provenance": "live_probed" if server.data_source in ("agent", "ssh") else (getattr(server, "metrics_provenance", None) or "load_derived_estimate"),
+        "data_source": "agent" if (server.agent_installed and server.agent_last_seen and (datetime.utcnow() - server.agent_last_seen).total_seconds() < 600) else (server.data_source or "estimated"),
+        "metrics_provenance": "live_probed" if (server.agent_installed or server.data_source in ("agent", "ssh")) else (getattr(server, "metrics_provenance", None) or "load_derived_estimate"),
+        "agent_installed": getattr(server, "agent_installed", False),
+        "agent_last_seen": (server.agent_last_seen.isoformat() + "Z") if server.agent_last_seen else None,
         "last_scanned_at": server.last_scanned_at,
         "projects_count": len(discoveries),
         "projects": [

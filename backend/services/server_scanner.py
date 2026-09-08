@@ -418,7 +418,13 @@ def _ssh_scan(db, server, client: paramiko.SSHClient, job: ScanJob) -> dict:
         if hasattr(server, key):
             setattr(server, key, val)
 
-    server.data_source = "ssh"
+    has_active_agent = bool(
+        server.agent_installed
+        and server.agent_last_seen
+        and (datetime.utcnow() - server.agent_last_seen).total_seconds() < 600
+    )
+    if not has_active_agent:
+        server.data_source = "ssh"
     server.metrics_provenance = "live_probed"
     server.status = "active"
     server.scan_status = "success"
@@ -547,14 +553,24 @@ def _whm_scan(db, server, job: ScanJob) -> dict:
                 load5 = loads.get("load_5", 0.0)
                 load15 = loads.get("load_15", 0.0)
 
-                server.load_avg_1 = load1
-                server.load_avg_5 = load5
-                server.load_avg_15 = load15
-                server.cpu_usage = min(95, max(5, int(load1 * 25))) if load1 > 0 else (server.cpu_usage or 15)
-                server.memory_usage = min(95, max(10, int(load5 * 20))) if load5 > 0 else (server.memory_usage or 35)
-                server.disk_usage = disk_pct if disk_pct > 0 else (server.disk_usage or 35)
-                server.data_source = "whm"
-                server.metrics_provenance = "load_derived_estimate"
+                has_active_agent = bool(
+                    server.agent_installed
+                    and server.agent_last_seen
+                    and (datetime.utcnow() - server.agent_last_seen).total_seconds() < 600
+                )
+
+                if not has_active_agent:
+                    server.load_avg_1 = load1
+                    server.load_avg_5 = load5
+                    server.load_avg_15 = load15
+                    server.cpu_usage = min(95, max(5, int(load1 * 25))) if load1 > 0 else (server.cpu_usage or 15)
+                    server.memory_usage = min(95, max(10, int(load5 * 20))) if load5 > 0 else (server.memory_usage or 35)
+                    server.disk_usage = disk_pct if disk_pct > 0 else (server.disk_usage or 35)
+                    server.data_source = "whm"
+                    server.metrics_provenance = "load_derived_estimate"
+                else:
+                    logger.info(f"Server {server.name}: Preserving active agent telemetry (last seen: {server.agent_last_seen})")
+
                 server.status = "active"
                 server.scan_status = "success"
                 server.scan_error = None
