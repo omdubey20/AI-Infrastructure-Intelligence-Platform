@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
 from models import Alert, AlertConfig, MalwareAlert, Server
@@ -26,7 +26,7 @@ def get_alerts(
     current_user=Depends(get_current_user)
 ):
     """List all alerts with filtering and pagination."""
-    query = db.query(Alert)
+    query = db.query(Alert).options(joinedload(Alert.server), joinedload(Alert.site))
 
     if alert_type:
         query = query.filter(Alert.type == alert_type)
