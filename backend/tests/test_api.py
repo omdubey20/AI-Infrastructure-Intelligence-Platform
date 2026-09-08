@@ -189,6 +189,70 @@ class TestServersAPI:
         assert detail_resp.status_code == 200
         assert detail_resp.json()["name"] == "Production VPS A"
 
+    def test_delete_server_cascades_and_purges_all_child_records(self):
+        # Create server
+        resp = client.post("/servers/", json={
+            "name": "Server To Delete",
+            "ip_address": "192.168.1.200",
+            "environment": "staging",
+            "status": "active",
+        }, headers=auth_headers())
+        srv_id = resp.json()["id"]
+
+        # Insert child records in db
+        db = TestSession()
+        try:
+            p = models.ProjectDiscovery(
+                server_id=srv_id,
+                project_name="child-site",
+                project_path="/var/www/child-site",
+                domain="child.site.local",
+                is_live=True
+            )
+            db.add(p)
+            db.commit()
+            db.refresh(p)
+            p_id = p.id
+
+            chk = models.UptimeCheck(
+                site_id=p_id,
+                server_id=srv_id,
+                url="http://child.site.local",
+                is_up=True
+            )
+            db.add(chk)
+
+            alt = models.Alert(
+                server_id=srv_id,
+                site_id=p_id,
+                type="site_down",
+                severity="critical",
+                message="Down",
+                is_resolved=False
+            )
+            db.add(alt)
+            db.commit()
+        finally:
+            db.close()
+
+        # Delete the server
+        del_resp = client.delete(f"/servers/{srv_id}", headers=auth_headers())
+        assert del_resp.status_code == 200
+        assert "deleted successfully" in del_resp.json()["message"]
+
+        # Verify server is 404
+        assert client.get(f"/servers/{srv_id}", headers=auth_headers()).status_code == 404
+
+        # Verify child records in DB are completely purged
+        db = TestSession()
+        try:
+            assert db.query(models.Server).filter(models.Server.id == srv_id).first() is None
+            assert db.query(models.ProjectDiscovery).filter(models.ProjectDiscovery.server_id == srv_id).count() == 0
+            assert db.query(models.UptimeCheck).filter(models.UptimeCheck.server_id == srv_id).count() == 0
+            assert db.query(models.Alert).filter(models.Alert.server_id == srv_id).count() == 0
+        finally:
+            db.close()
+
 
 # ============================================================
 # 4: PROJECTS API
