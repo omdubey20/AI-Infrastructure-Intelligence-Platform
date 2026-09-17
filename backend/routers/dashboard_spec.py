@@ -124,7 +124,7 @@ def get_sites(
             "url": f"https://{s.domain}" if s.domain else f"http://{s.project_name}",
             "domain": s.domain or s.project_name,
             "framework": s.framework or "unknown",
-            "http_status": 503 if s.is_inactive else (200 if s.is_live else 404),
+            "http_status": None if not s.is_live and not s.is_inactive else (503 if s.is_inactive else 200),
             "response_ms": None,  # Not measured — explicitly null instead of fake value
             "ssl_expires_at": (datetime.utcnow() + timedelta(days=s.ssl_expiry_days)).date().isoformat() if s.has_ssl and s.ssl_expiry_days else None,
             "is_up": bool(s.is_live and not s.is_inactive),

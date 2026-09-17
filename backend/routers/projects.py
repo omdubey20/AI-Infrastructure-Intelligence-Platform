@@ -163,7 +163,10 @@ def delete_project(
     # Clear duplicate_of_id references
     db.query(models.ProjectDiscovery).filter(models.ProjectDiscovery.duplicate_of_id == project_id).update({models.ProjectDiscovery.duplicate_of_id: None}, synchronize_session=False)
 
-    # Delete AI Insights referencing this project
+    # Cascade-delete ALL child records to prevent ForeignKeyViolation crashes
+    db.query(models.UptimeCheck).filter(models.UptimeCheck.site_id == project_id).delete(synchronize_session=False)
+    db.query(models.Alert).filter(models.Alert.site_id == project_id).delete(synchronize_session=False)
+    db.query(models.MalwareAlert).filter(models.MalwareAlert.site_id == project_id).delete(synchronize_session=False)
     db.query(models.AIInsight).filter(models.AIInsight.project_id == project_id).delete(synchronize_session=False)
 
     db.delete(project)

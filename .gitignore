@@ -33,3 +33,7 @@ node_modules/
 *.swp
 *.swo
 *~
+
+# Cloned site directory
+salesleadmachine-revamp/
+

@@ -327,17 +327,22 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": f"Server Error: {str(exc)}"}
     )
 
-# CORS — securely permit trusted local development and deployed frontend origins
+# CORS — only permit the exact deployed frontend and local development origins
 allowed_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "https://ai-infrastructure-intelligence-plat-eta.vercel.app",
 ]
+# Also allow the exact Railway backend origin for same-origin requests
+_railway_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+if _railway_url:
+    allowed_origins.append(f"https://{_railway_url}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"^https://.*(\.vercel\.app|\.railway\.app|\.up\.railway\.app)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

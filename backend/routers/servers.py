@@ -188,7 +188,13 @@ def create_server(
     if data.get("whm_token"):
         data["whm_token"] = encrypt_credential(data["whm_token"])
     else:
-        data["whm_token"] = encrypt_credential("GXLHX0AFIBCLCZYQJQYFHHZP6P41UD4E")
+        # Read WHM token from environment if not supplied by user — NEVER hardcode credentials
+        import os
+        env_token = os.getenv("WHM_TOKEN")
+        if env_token and env_token.strip():
+            data["whm_token"] = encrypt_credential(env_token.strip())
+        else:
+            data["whm_token"] = None
 
     new_server = Server(**data)
     db.add(new_server)

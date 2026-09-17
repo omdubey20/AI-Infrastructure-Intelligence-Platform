@@ -84,8 +84,8 @@ def get_monitoring_status(
 
         total_checks = st["total"]
         up_checks = st["up"]
-        uptime_pct = round((up_checks / total_checks * 100), 2) if total_checks > 0 else (99.8 if site.is_live else None)
-        avg_rt = st["avg_rt"] if st["avg_rt"] is not None else (latest.response_time_ms if latest and latest.response_time_ms else (145 if site.is_live else None))
+        uptime_pct = round((up_checks / total_checks * 100), 2) if total_checks > 0 else None
+        avg_rt = st["avg_rt"] if st["avg_rt"] is not None else (latest.response_time_ms if latest and latest.response_time_ms else None)
 
         server_name = site.server.name if site.server else "Unknown"
 
@@ -99,16 +99,16 @@ def get_monitoring_status(
             err_msg = latest.error_message if (latest and not latest.is_up) else None
         else:
             missing_checks += 1
-            # Fallback to verified server discovery status so page displays active data instantly
-            is_up = bool(site.is_live)
-            http_status = 200 if site.is_live else 503
-            rt_ms = 135 if site.is_live else None
-            ssl_valid = getattr(site, "has_ssl", True)
-            ssl_expiry = getattr(site, "ssl_expiry_days", 60)
+            # No checks exist yet — return honest null values, never fabricate metrics
+            is_up = None
+            http_status = None
+            rt_ms = None
+            ssl_valid = getattr(site, "has_ssl", None)
+            ssl_expiry = getattr(site, "ssl_expiry_days", None)
             dt = site.last_synced_at or site.created_at or datetime.utcnow()
             last_checked = dt.isoformat() + "Z"
-            err_msg = None if site.is_live else "Site pending initial background check"
-            total_checks = 1
+            err_msg = "Pending initial background check"
+            total_checks = 0
 
         result.append({
             "id": site.id,
